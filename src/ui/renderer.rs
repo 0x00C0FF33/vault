@@ -14,6 +14,7 @@ use super::components::{
     CredentialList, DetailView, EmptyState, HelpBar, HelpScreen, ListViewState, MessageType,
     PasswordDialog, StatusLine,
 };
+use crate::db::models::CredentialType;
 use crate::input::InputMode;
 use crate::ui::components::help::HelpState;
 use crate::ui::components::logs::{LogsScreen, LogsState};
@@ -36,6 +37,7 @@ pub struct UiState<'a> {
     pub selected_detail: Option<&'a CredentialDetail>,
     pub search_query: Option<&'a str>,
     pub filter_tags: Option<&'a [String]>,
+    pub filter_type: Option<CredentialType>,
     pub command_buffer: Option<&'a str>,
     pub message: Option<(&'a str, MessageType)>,
     pub confirm_message: Option<&'a str>,
@@ -105,6 +107,9 @@ fn render_status_line(frame: &mut Frame, area: Rect, state: &UiState) {
         status = status.message(msg, msg_type);
     }
 
+    if let Some(cred_type) = state.filter_type {
+        status = status.filter_type(cred_type);
+    }
     if let Some(tags) = state.filter_tags {
         status = status.filter_tags(tags);
     }

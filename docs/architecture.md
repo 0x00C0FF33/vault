@@ -54,7 +54,7 @@ handling should not require touching anything under `ui/`.
 | `vault/manager.rs` | Vault lifecycle: initialize, unlock, lock, change password |
 | `vault/credential.rs` | Encrypt/decrypt credential fields |
 | `vault/audit.rs` | HMAC-signed audit records |
-| `vault/search.rs` | Search and tag filtering |
+| `vault/search.rs` | Search, tag and type filtering |
 | `vault/export.rs` | Export formats and external encryption |
 | `crypto/kdf.rs` | Argon2id + HKDF derivation, verifier |
 | `crypto/key_hierarchy.rs` | Master key, DEK, subkey derivation |

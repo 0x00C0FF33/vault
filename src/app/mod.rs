@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use ratatui::{layout::Rect, Frame};
 use crossterm::event::MouseEvent;
 
-use crate::db::models::Credential;
+use crate::db::models::{Credential, CredentialType};
 use crate::db::AuditAction;
 use crate::input::modes::ModeState;
 use crate::input::keymap::{mouse_action, Action};
@@ -53,6 +53,7 @@ pub struct App {
     pub selected_detail: Option<CredentialDetail>,
     pub search_query: Option<String>,
     pub filter_tags: Option<Vec<String>>,
+    pub filter_type: Option<CredentialType>,
     pub message: Option<(String, MessageType, Instant)>,
     pub pending_action: Option<PendingAction>,
     pub password_visible: bool,
@@ -86,6 +87,7 @@ impl App {
             selected_detail: None,
             search_query: None,
             filter_tags: None,
+            filter_type: None,
             message: None,
             pending_action: None,
             password_visible: false,
@@ -223,6 +225,7 @@ impl App {
         let had_filters = self.has_active_filters();
         self.search_query = None;
         self.filter_tags = None;
+        self.filter_type = None;
         if had_filters {
             self.refresh_data()?;
             self.update_selected_detail()?;
@@ -231,7 +234,7 @@ impl App {
     }
 
     pub fn has_active_filters(&self) -> bool {
-        self.search_query.is_some() || self.filter_tags.is_some()
+        self.search_query.is_some() || self.filter_tags.is_some() || self.filter_type.is_some()
     }
 
     pub fn log_audit(
@@ -292,6 +295,7 @@ impl App {
             selected_detail: self.selected_detail.as_ref(),
             search_query: self.search_query.as_deref(),
             filter_tags: self.filter_tags.as_deref(),
+            filter_type: self.filter_type,
             command_buffer,
             message,
             confirm_message,

@@ -43,6 +43,28 @@ impl CredentialType {
         }
     }
 
+    /// Strict counterpart to `from_str`, which falls back to `Custom` so an
+    /// unrecognised stored value still round-trips. User input gets no such
+    /// fallback: `:type banana` must report a mistake, not silently filter to
+    /// `Custom`. Accepts hyphens and spaces as separators.
+    pub fn parse_name(s: &str) -> Option<Self> {
+        let normalised = s.trim().to_lowercase().replace(['-', ' '], "_");
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|candidate| candidate.as_str() == normalised)
+    }
+
+    pub const ALL: [Self; 7] = [
+        Self::Password,
+        Self::ApiKey,
+        Self::SshKey,
+        Self::Certificate,
+        Self::Note,
+        Self::Database,
+        Self::Custom,
+    ];
+
     pub fn icon(&self) -> &'static str {
         match self {
             Self::Password => "󰌋",

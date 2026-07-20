@@ -2,7 +2,7 @@ use secrecy::ExposeSecret;
 use std::path::Path;
 
 use crate::crypto::{totp::{self, TotpSecret}, decrypt_string};
-use crate::db::{models::Credential, AuditAction};
+use crate::db::{models::{Credential, CredentialType}, AuditAction};
 use crate::ui::{
     components::{
         ExportDialog,
@@ -39,10 +39,16 @@ impl App {
     }
 
     fn fetch_base_credentials(&self, db: &crate::db::Database) -> Result<Vec<Credential>, Box<dyn std::error::Error>> {
-        match &self.filter_tags {
-            Some(tags) if !tags.is_empty() => Ok(crate::vault::search::filter_by_tags(db.conn(), tags)?),
-            _ => Ok(crate::vault::search::get_all(db.conn())?),
+        let mut results = match &self.filter_tags {
+            Some(tags) if !tags.is_empty() => crate::vault::search::filter_by_tags(db.conn(), tags)?,
+            _ => crate::vault::search::get_all(db.conn())?,
+        };
+
+        if let Some(cred_type) = self.filter_type {
+            crate::vault::search::retain_type(&mut results, cred_type);
         }
+
+        Ok(results)
     }
 
     pub fn clear_credentials(&mut self) {
@@ -65,6 +71,18 @@ impl App {
         if !tags.is_empty() {
             self.set_message(&format_filter_message(tags), MessageType::Info);
         }
+        self.update_selected_detail()
+    }
+
+    pub fn filter_by_type(&mut self, cred_type: Option<CredentialType>) -> Result<(), Box<dyn std::error::Error>> {
+        self.filter_type = cred_type;
+        self.refresh_data()?;
+
+        let message = match cred_type {
+            Some(t) => format!("Filtered by type: {}", t.display_name()),
+            None => "Type filter cleared".to_string(),
+        };
+        self.set_message(&message, MessageType::Info);
         self.update_selected_detail()
     }
 

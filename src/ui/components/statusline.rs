@@ -10,6 +10,7 @@ use ratatui::{
     widgets::Widget,
 };
 
+use crate::db::models::CredentialType;
 use crate::input::InputMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +40,7 @@ pub struct StatusLine<'a> {
     item_count: Option<(usize, usize)>,
     search_query: Option<&'a str>,
     filter_tags: Option<&'a [String]>,
+    filter_type: Option<CredentialType>,
 }
 
 impl<'a> StatusLine<'a> {
@@ -50,6 +52,7 @@ impl<'a> StatusLine<'a> {
             item_count: None,
             search_query: None,
             filter_tags: None,
+            filter_type: None,
         }
     }
 
@@ -70,6 +73,11 @@ impl<'a> StatusLine<'a> {
 
     pub fn search_query(mut self, query: &'a str) -> Self {
         self.search_query = Some(query);
+        self
+    }
+
+    pub fn filter_type(mut self, cred_type: CredentialType) -> Self {
+        self.filter_type = Some(cred_type);
         self
     }
 
@@ -138,6 +146,7 @@ fn render_right_section(
     area: Rect,
     search_query: Option<&str>,
     filter_tags: Option<&[String]>,
+    filter_type: Option<CredentialType>,
     item_count: Option<(usize, usize)>,
 ) {
     let mut spans: Vec<Span> = Vec::new();
@@ -153,6 +162,12 @@ fn render_right_section(
         spans.push(Span::styled(tags_display, Style::default().fg(Color::Magenta).bg(Color::DarkGray).add_modifier(Modifier::BOLD)));
     }
     
+    if let Some(cred_type) = filter_type {
+        if !spans.is_empty() { spans.push(sep.clone()); }
+        spans.push(Span::styled("Type: ", Style::default().fg(Color::Cyan).bg(Color::DarkGray)));
+        spans.push(Span::styled(cred_type.display_name(), Style::default().fg(Color::Magenta).bg(Color::DarkGray).add_modifier(Modifier::BOLD)));
+    }
+
     if let Some(query) = search_query {
         if !spans.is_empty() { spans.push(sep.clone()); }
         spans.push(Span::styled("Search: ", Style::default().fg(Color::Yellow).bg(Color::DarkGray)));
@@ -190,7 +205,7 @@ impl Widget for StatusLine<'_> {
 
         render_command_or_message(buf, x, area.y, self.mode, self.command_buffer, self.message);
 
-        render_right_section(buf, area, self.search_query, self.filter_tags, self.item_count);
+        render_right_section(buf, area, self.search_query, self.filter_tags, self.filter_type, self.item_count);
     }
 }
 

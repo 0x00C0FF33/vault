@@ -135,6 +135,7 @@ Your vault lives at `~/.local/share/vault/vault.db` on Linux; see [docs/storage.
 - `:audit` - Verify audit log integrity
 - `:log` - View logs
 - `:tag` - View existing tags
+- `:type <name>` - Filter by credential type; bare `:type` clears it
 - `:export` - Export credentials with options
 - `:help` - Show help
 

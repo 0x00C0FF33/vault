@@ -42,6 +42,7 @@ impl App {
 
             Action::ExecuteCommand(cmd) => return self.execute_action(parse_command(&cmd)),
             Action::Search(query) => self.search_credentials(&query)?,
+            Action::FilterByType(cred_type) => self.filter_by_type(cred_type)?,
 
             Action::GeneratePassword => self.generate_and_copy_password()?,
 

@@ -8,6 +8,8 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind, MouseButton};
 
+use crate::db::models::CredentialType;
+
 /// Actions that can be triggered by key presses
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -49,6 +51,8 @@ pub enum Action {
     // Commands
     ExecuteCommand(String),
     Search(String),
+    /// `None` clears the type filter.
+    FilterByType(Option<CredentialType>),
     GeneratePassword,
     ChangePassword,
     VerifyAudit,
@@ -194,8 +198,10 @@ pub fn parse_command(cmd: &str) -> Action {
     let cmd = cmd.trim();
     let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
     let command = parts[0];
+    let argument = parts.get(1).map(|a| a.trim()).filter(|a| !a.is_empty());
 
     match command {
+        "ty" | "type" => parse_type_filter(argument),
         "cls" | "clear" => Action::Clear,
         "q" | "quit" => Action::Quit,
         "q!" | "quit!" => Action::ForceQuit,
@@ -218,9 +224,70 @@ pub fn parse_command(cmd: &str) -> Action {
     }
 }
 
+/// A bare `:type` clears the filter; a named type sets it. An unrecognised
+/// name is reported rather than filtered on, so a typo cannot look like a
+/// vault holding no credentials of that type.
+fn parse_type_filter(argument: Option<&str>) -> Action {
+    let Some(name) = argument else {
+        return Action::FilterByType(None);
+    };
+    match CredentialType::parse_name(name) {
+        Some(cred_type) => Action::FilterByType(Some(cred_type)),
+        None => Action::Invalid(format!("type {name}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn type_command_sets_the_filter() {
+        assert_eq!(
+            parse_command("type password"),
+            Action::FilterByType(Some(CredentialType::Password))
+        );
+        assert_eq!(
+            parse_command("ty note"),
+            Action::FilterByType(Some(CredentialType::Note))
+        );
+    }
+
+    #[test]
+    fn type_names_accept_hyphens_spaces_and_case() {
+        for name in ["api_key", "api-key", "API Key", "Api-Key"] {
+            assert_eq!(
+                parse_command(&format!("type {name}")),
+                Action::FilterByType(Some(CredentialType::ApiKey)),
+                "{name} should parse as ApiKey"
+            );
+        }
+    }
+
+    #[test]
+    fn bare_type_command_clears_the_filter() {
+        assert_eq!(parse_command("type"), Action::FilterByType(None));
+        assert_eq!(parse_command("type   "), Action::FilterByType(None));
+    }
+
+    /// A typo must not read as "no credentials of that type" —
+    /// `CredentialType::from_str` falls back to `Custom` when parsing stored
+    /// values, and that fallback would be a silent wrong answer here.
+    #[test]
+    fn unknown_type_name_is_rejected_rather_than_treated_as_custom() {
+        assert_eq!(
+            parse_command("type banana"),
+            Action::Invalid("type banana".to_string())
+        );
+    }
+
+    #[test]
+    fn custom_is_still_selectable_by_name() {
+        assert_eq!(
+            parse_command("type custom"),
+            Action::FilterByType(Some(CredentialType::Custom))
+        );
+    }
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)

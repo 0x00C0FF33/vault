@@ -320,6 +320,7 @@ fn help_sections() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
             (":audit", "Verify audit log integrity"),
             (":log", "View logs"),
             (":tag", "View tags"),
+            (":type <name>", "Filter by type (bare :type clears)"),
             (":new", "New credential"),
             (":gen", "Generate password"),
             (":export", "Export Credentials"),
