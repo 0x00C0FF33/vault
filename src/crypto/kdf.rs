@@ -85,7 +85,7 @@ impl KdfParams {
 }
 
 /// Derive master key from password using Argon2id
-/// Returns (MasterKey, password_hash_string)
+/// Returns (`MasterKey`, `password_hash_string`)
 pub fn derive_master_key(password: &[u8], params: &KdfParams) -> CryptoResult<(MasterKey, String)> {
     let salt = SaltString::generate(&mut OsRng);
 

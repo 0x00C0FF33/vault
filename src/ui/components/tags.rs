@@ -224,5 +224,5 @@ fn render_tag_name(buf: &mut Buffer, x: u16, y: u16, inner_width: u16, tag: &str
 fn render_tag_count(buf: &mut Buffer, x: u16, y: u16, count: usize, highlight: bool) {
     let style = Style::default().fg(Color::Cyan);
     let style = if highlight { style.bg(Color::DarkGray) } else { style };
-    buf.set_string(x, y, format!("{:>5}", count), style);
+    buf.set_string(x, y, format!("{count:>5}"), style);
 }

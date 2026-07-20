@@ -262,9 +262,8 @@ fn render_confirm_overlay(frame: &mut Frame, area: Rect, state: &UiState) -> boo
 }
 
 fn render_password_overlay(frame: &mut Frame, area: Rect, state: &UiState) {
-    let prompt = match &state.password_prompt {
-        Some(p) => p,
-        None => return,
+    let Some(prompt) = &state.password_prompt else {
+        return;
     };
 
     let mut dialog = PasswordDialog::new(prompt.title, prompt.prompt, prompt.value, prompt.cursor);

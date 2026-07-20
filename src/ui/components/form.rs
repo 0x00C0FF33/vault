@@ -255,7 +255,7 @@ impl CredentialForm {
         buf
     }
 
-    fn apply_buffer(&mut self, buf: TextBuffer) {
+    fn apply_buffer(&mut self, buf: &TextBuffer) {
         self.fields[self.active_field].value = buf.content().to_string();
         self.cursor = buf.cursor();
     }
@@ -269,7 +269,7 @@ impl CredentialForm {
             return;
         }
         let is_multiline = self.active_field().field_type == FieldType::MultiLine;
-        self.apply_buffer(buf);
+        self.apply_buffer(&buf);
         if is_multiline {
             self.ensure_visible(Self::form_inner_height(area_height));
         }
@@ -625,7 +625,7 @@ fn render_multiline_field(
     visible_lines.max(1)
 }
 
-impl<'a> Widget for CredentialFormWidget<'a> {
+impl Widget for CredentialFormWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let form_area = calculate_form_area(area);
         let inner = render_form_block(buf, form_area, self.title);

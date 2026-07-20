@@ -177,9 +177,9 @@ impl App {
             return Ok(());
         };
 
-        let details = format!("{} unlock attempt(s) on {}", count, timestamp);
+        let details = format!("{count} unlock attempt(s) on {timestamp}");
         self.log_audit(AuditAction::FailedUnlock, None, None, None, Some(&details))?;
-        self.set_message(&format!("Warning: {} failed unlock attempt(s) detected", count), MessageType::Error);
+        self.set_message(&format!("Warning: {count} failed unlock attempt(s) detected"), MessageType::Error);
         Ok(())
     }
 
@@ -187,7 +187,7 @@ impl App {
         let Ok((tampered, total)) = self.verify_audit_logs() else { return };
         if tampered == 0 { return }
         self.set_message(
-            &format!("Warning: {} of {} audit logs may be tampered", tampered, total),
+            &format!("Warning: {tampered} of {total} audit logs may be tampered"),
             MessageType::Error,
         );
     }
@@ -260,7 +260,7 @@ impl App {
 
         let message = self.message.as_ref().map(|(m, t, _)| (m.as_str(), *t));
         let command_buffer = self.mode_state.mode.is_text_input().then(|| self.mode_state.get_buffer());
-        let confirm_message = self.pending_action.as_ref().map(|a| a.confirm_message());
+        let confirm_message = self.pending_action.as_ref().map(config::PendingAction::confirm_message);
 
         let mut state = UiState {
             view: self.view,

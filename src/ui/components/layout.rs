@@ -10,8 +10,8 @@ use ratatui::{
 /// Percentage based layout
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let content_area = Rect::new(r.x, r.y, r.width, r.height.saturating_sub(2));
-    let w = (content_area.width as u32 * percent_x as u32 / 100) as u16;
-    let h = (content_area.height as u32 * percent_y as u32 / 100) as u16;
+    let w = (u32::from(content_area.width) * u32::from(percent_x) / 100) as u16;
+    let h = (u32::from(content_area.height) * u32::from(percent_y) / 100) as u16;
     let remainder_x = (content_area.width.saturating_sub(w)) % 2;
     let remainder_y = (content_area.height.saturating_sub(h)) % 2;
     let adj_w = w + remainder_x;

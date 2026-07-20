@@ -36,10 +36,10 @@ pub fn log_action(
 
     let log = AuditLog::new(
         action,
-        credential_id.map(|s| s.to_string()),
-        credential_name.map(|s| s.to_string()),
-        username.map(|s| s.to_string()),
-        details.map(|s| s.to_string()),
+        credential_id.map(ToString::to_string),
+        credential_name.map(ToString::to_string),
+        username.map(ToString::to_string),
+        details.map(ToString::to_string),
         hmac,
     );
 

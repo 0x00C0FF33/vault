@@ -7,6 +7,9 @@ use rand::prelude::IteratorRandom;
 use rand::seq::SliceRandom;
 
 /// Password generation policy
+// The four character-class toggles are the conventional shape for a generator
+// policy; folding them into a bitfield would obscure more than it saves.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct PasswordPolicy {
     pub length: usize,
@@ -238,6 +241,13 @@ pub fn generate_passphrase(word_count: usize, separator: &str) -> String {
 ///
 /// Note: For post-quantum resistance (Grover's algorithm), 256 bits (~40 chars
 /// with full charset) provides 128-bit equivalent security. See `PasswordPolicy::quantum_resistant()`.
+// Entropy is non-negative and every arm below is bounded to 0..=100, so the
+// f64 -> u32 narrowing is the intended floor rather than a lossy conversion.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 pub fn password_strength(password: &str) -> u32 {
     let len = password.len();
     if len == 0 {
@@ -267,7 +277,7 @@ pub fn password_strength(password: &str) -> u32 {
     }
 
     // Entropy in bits: log2(charset_size^len) = len * log2(charset_size)
-    let entropy = (len as f64) * (charset_size as f64).log2();
+    let entropy = (len as f64) * f64::from(charset_size).log2();
 
     match entropy as u32 {
         0..=27 => ((entropy / 28.0) * 20.0) as u32,
@@ -341,20 +351,20 @@ mod tests {
     fn test_password_strength_short_complex() {
         // Short password with full variety should still be weak
         let score = password_strength("Aa1!");
-        assert!(score <= 40, "4-char password scored {}, should be <= 40", score);
+        assert!(score <= 40, "4-char password scored {score}, should be <= 40");
     }
 
     #[test]
     fn test_password_strength_long_simple() {
         // Long lowercase-only password should be fair/strong due to length
         let score = password_strength("abcdefghijklmnopqrstuvwxyz");
-        assert!(score >= 40, "26-char password scored {}, should be >= 40", score);
+        assert!(score >= 40, "26-char password scored {score}, should be >= 40");
     }
 
     #[test]
     fn test_password_strength_strong() {
         let score = password_strength("MyP@ssw0rd!2026XyZ");
-        assert!(score > 60, "Complex 18-char password scored {}, should be > 60", score);
+        assert!(score > 60, "Complex 18-char password scored {score}, should be > 60");
     }
 
     #[test]
@@ -418,8 +428,8 @@ mod tests {
         for _ in 0..10 {
             let password = generate_password(&policy).unwrap();
             let score = password_strength(&password);
-            println!("Password: {} | Score: {}", password, score);
-            assert_eq!(score, 100, "Password '{}' scored {}", password, score);
+            println!("Password: {password} | Score: {score}");
+            assert_eq!(score, 100, "Password '{password}' scored {score}");
         }
     }
 }

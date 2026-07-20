@@ -233,11 +233,11 @@ mod tests {
 
         assert_eq!(decrypted.name, "Test Credential");
         assert_eq!(
-            decrypted.secret.as_ref().map(|s| s.expose_secret()),
+            decrypted.secret.as_ref().map(secrecy::ExposeSecret::expose_secret),
             Some("my_secret_password")
         );
         assert_eq!(
-            decrypted.notes.as_ref().map(|s| s.expose_secret()),
+            decrypted.notes.as_ref().map(secrecy::ExposeSecret::expose_secret),
             Some("These are notes")
         );
         assert_eq!(decrypted.username, Some("testuser".to_string()));
@@ -256,11 +256,11 @@ mod tests {
         let decrypted = decrypt_credential(conn, &dek, &fetched, false).unwrap();
 
         assert_eq!(
-            decrypted.secret.as_ref().map(|s| s.expose_secret()),
+            decrypted.secret.as_ref().map(secrecy::ExposeSecret::expose_secret),
             Some("new_secret")
         );
         assert_eq!(
-            decrypted.notes.as_ref().map(|s| s.expose_secret()),
+            decrypted.notes.as_ref().map(secrecy::ExposeSecret::expose_secret),
             Some("new notes")
         );
     }

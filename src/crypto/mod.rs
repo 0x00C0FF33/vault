@@ -76,7 +76,7 @@ impl<const N: usize> LockedBuffer<N> {
         self.locked = Self::mlock_impl(self.data.as_ptr(), N);
         #[cfg(debug_assertions)]
         if !self.locked {
-            eprintln!("Warning: mlock() failed for {} byte buffer - sensitive data may be swapped to disk", N);
+            eprintln!("Warning: mlock() failed for {N} byte buffer - sensitive data may be swapped to disk");
         }
     }
 
@@ -92,7 +92,7 @@ impl<const N: usize> LockedBuffer<N> {
     #[cfg(unix)]
     fn mlock_impl(ptr: *const u8, len: usize) -> bool {
         // SAFETY: ptr points to valid memory of at least `len` bytes
-        unsafe { libc::mlock(ptr as *const libc::c_void, len) == 0 }
+        unsafe { libc::mlock(ptr.cast::<libc::c_void>(), len) == 0 }
     }
 
     #[cfg(windows)]
@@ -112,7 +112,7 @@ impl<const N: usize> LockedBuffer<N> {
     fn munlock_impl(ptr: *const u8, len: usize) {
         // SAFETY: ptr points to valid memory of at least `len` bytes
         unsafe {
-            libc::munlock(ptr as *const libc::c_void, len);
+            libc::munlock(ptr.cast::<libc::c_void>(), len);
         }
     }
 
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn test_locked_buffer_debug_no_leak() {
         let buf = LockedBuffer::new([0x42u8; 32]);
-        let debug_str = format!("{:?}", buf);
+        let debug_str = format!("{buf:?}");
         // Should not contain the actual data
         assert!(!debug_str.contains("42"));
         assert!(debug_str.contains("LockedBuffer"));

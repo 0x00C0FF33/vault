@@ -40,7 +40,7 @@ impl<'a> DetailView<'a> {
 
 fn render_field(buf: &mut Buffer, x: u16, y: &mut u16, _width: u16, label: &str, value: &[Span]) {
     let label_style = Style::default().fg(Color::White);
-    buf.set_string(x, *y, format!("{}:", label), label_style);
+    buf.set_string(x, *y, format!("{label}:"), label_style);
 
     let value_x = x + 12;
     let line = Line::from(value.to_vec());
@@ -101,7 +101,7 @@ fn render_strength_field(buf: &mut Buffer, x: u16, y: &mut u16, width: u16, secr
     let label = crate::crypto::strength_label(strength);
     let color = strength_color(strength);
     render_field(buf, x, y, width, "Strength", &[
-        Span::styled(format!("{} ({}%)", label, strength), Style::default().fg(color)),
+        Span::styled(format!("{label} ({strength}%)"), Style::default().fg(color)),
     ]);
 }
 
@@ -118,7 +118,7 @@ fn render_secret_and_strength(buf: &mut Buffer, x: u16, y: &mut u16, width: u16,
 fn render_totp_field(buf: &mut Buffer, x: u16, y: &mut u16, width: u16, code: &str, remaining: u64) {
     render_field(buf, x, y, width, "TOTP", &[
         Span::styled(code, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" ({}s)", remaining), Style::default().fg(Color::DarkGray)),
+        Span::styled(format!(" ({remaining}s)"), Style::default().fg(Color::DarkGray)),
     ]);
 }
 
@@ -132,7 +132,7 @@ fn render_tags_field(buf: &mut Buffer, x: u16, y: &mut u16, width: u16, tags: &[
     let tag_spans: Vec<Span> = tags
         .iter()
         .flat_map(|tag| vec![
-            Span::styled(format!("#{}", tag), Style::default().fg(Color::Magenta)),
+            Span::styled(format!("#{tag}"), Style::default().fg(Color::Magenta)),
             Span::raw(" "),
         ])
         .collect();
@@ -166,7 +166,7 @@ fn render_timestamps(buf: &mut Buffer, inner: &Rect, y: u16, created: &str, upda
 
 fn render_detail_block(area: Rect, buf: &mut Buffer, name: &str) -> Rect {
     let block = Block::default()
-        .title(format!(" {} ", name))
+        .title(format!(" {name} "))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::Magenta));
@@ -176,7 +176,7 @@ fn render_detail_block(area: Rect, buf: &mut Buffer, name: &str) -> Rect {
     inner
 }
 
-impl<'a> Widget for DetailView<'a> {
+impl Widget for DetailView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let inner = render_detail_block(area, buf, &self.detail.name);
         let mut y = inner.y;

@@ -122,7 +122,7 @@ impl TotpSecret {
     fn decode_secret(&self) -> CryptoResult<Vec<u8>> {
         Secret::Encoded(self.secret.clone())
             .to_bytes()
-            .map_err(|e| CryptoError::TotpFailed(format!("Invalid base32 secret: {}", e)))
+            .map_err(|e| CryptoError::TotpFailed(format!("Invalid base32 secret: {e}")))
     }
 }
 
@@ -175,7 +175,7 @@ fn align_uri_issuer(uri: String) -> String {
 }
 
 fn extract_uri_param<'a>(uri: &'a str, key: &str) -> Option<&'a str> {
-    let search = format!("{}=", key);
+    let search = format!("{key}=");
     let start = uri.find(&search)?;
     let value_start = start + search.len();
     let value_end = uri[value_start..].find('&').map_or(uri.len(), |i| value_start + i);
@@ -317,6 +317,6 @@ mod tests {
         ).unwrap();
         
         let remaining = time_remaining(&secret);
-        assert!(remaining >= 1 && remaining <= 30);
+        assert!((1..=30).contains(&remaining));
     }
 }

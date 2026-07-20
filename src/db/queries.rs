@@ -19,10 +19,10 @@ pub fn create_credential(conn: &Connection, credential: &Credential) -> DbResult
     let tags_json = serde_json::to_string(&credential.tags).unwrap_or_else(|_| "[]".to_string());
 
     conn.execute(
-        r#"
+        r"
         INSERT INTO credentials (id, name, credential_type, username, encrypted_secret, encrypted_notes, encrypted_totp_secret, url, tags, created_at, updated_at, accessed_at)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-        "#,
+        ",
         params![
             credential.id,
             credential.name,
@@ -45,16 +45,16 @@ pub fn create_credential(conn: &Connection, credential: &Credential) -> DbResult
 /// Get a credential by ID
 pub fn get_credential(conn: &Connection, id: &str) -> DbResult<Credential> {
     conn.query_row(
-        r#"
+        r"
         SELECT id, name, credential_type, username, encrypted_secret, encrypted_notes, encrypted_totp_secret, url, tags, created_at, updated_at, accessed_at
         FROM credentials
         WHERE id = ?1
-        "#,
+        ",
         [id],
         row_to_credential,
     )
     .map_err(|e| match e {
-        rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Credential: {}", id)),
+        rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Credential: {id}")),
         _ => e.into(),
     })
 }
@@ -62,16 +62,16 @@ pub fn get_credential(conn: &Connection, id: &str) -> DbResult<Credential> {
 /// Get all credentials
 pub fn get_all_credentials(conn: &Connection) -> DbResult<Vec<Credential>> {
     let mut stmt = conn.prepare(
-        r#"
+        r"
         SELECT id, name, credential_type, username, encrypted_secret, encrypted_notes, encrypted_totp_secret, url, tags, created_at, updated_at, accessed_at
         FROM credentials
         ORDER BY name
-        "#,
+        ",
     )?;
 
     let credentials = stmt
         .query_map([], row_to_credential)?
-        .filter_map(|r| r.ok())
+        .filter_map(Result::ok)
         .collect();
 
     Ok(credentials)
@@ -91,23 +91,23 @@ pub fn get_credentials_by_tag(conn: &Connection, tags: &[String]) -> DbResult<Ve
         .collect();
     
     let query = format!(
-        r#"
+        r"
         SELECT id, name, credential_type, username, encrypted_secret, encrypted_notes, encrypted_totp_secret, url, tags, created_at, updated_at, accessed_at
         FROM credentials
         WHERE {}
         ORDER BY name
-        "#,
+        ",
         conditions.join(" AND ")
     );
 
     let mut stmt = conn.prepare(&query)?;
     
-    let patterns: Vec<String> = tags.iter().map(|t| format!("%\"{}\"%", t)).collect();
+    let patterns: Vec<String> = tags.iter().map(|t| format!("%\"{t}\"%")).collect();
     let params: Vec<&dyn rusqlite::ToSql> = patterns.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
     
     let credentials = stmt
         .query_map(params.as_slice(), row_to_credential)?
-        .filter_map(|r| r.ok())
+        .filter_map(Result::ok)
         .collect();
 
     Ok(credentials)
@@ -125,21 +125,21 @@ pub fn search_credentials(conn: &Connection, query: &str) -> DbResult<Vec<Creden
     }
 
     // Use prefix matching for better UX
-    let fts_query = format!("\"{}\"*", escaped_query);
+    let fts_query = format!("\"{escaped_query}\"*");
 
     let mut stmt = conn.prepare(
-        r#"
+        r"
         SELECT c.id, c.name, c.credential_type, c.username, c.encrypted_secret, c.encrypted_notes, c.encrypted_totp_secret, c.url, c.tags, c.created_at, c.updated_at, c.accessed_at
         FROM credentials c
         INNER JOIN credentials_fts fts ON c.rowid = fts.rowid
         WHERE credentials_fts MATCH ?1
         ORDER BY rank
-        "#,
+        ",
     )?;
 
     let credentials = stmt
         .query_map([fts_query], row_to_credential)?
-        .filter_map(|r| r.ok())
+        .filter_map(Result::ok)
         .collect();
 
     Ok(credentials)
@@ -150,11 +150,11 @@ pub fn update_credential(conn: &Connection, credential: &Credential) -> DbResult
     let tags_json = serde_json::to_string(&credential.tags).unwrap_or_else(|_| "[]".to_string());
 
     let rows = conn.execute(
-        r#"
+        r"
         UPDATE credentials
         SET name = ?2, credential_type = ?3, username = ?4, encrypted_secret = ?5, encrypted_notes = ?6, encrypted_totp_secret = ?7, url = ?8, tags = ?9, updated_at = ?10
         WHERE id = ?1
-        "#,
+        ",
         params![
             credential.id,
             credential.name,
@@ -190,7 +190,7 @@ pub fn delete_credential(conn: &Connection, id: &str) -> DbResult<()> {
     let rows = conn.execute("DELETE FROM credentials WHERE id = ?1", [id])?;
 
     if rows == 0 {
-        return Err(DbError::NotFound(format!("Credential: {}", id)));
+        return Err(DbError::NotFound(format!("Credential: {id}")));
     }
 
     Ok(())
@@ -212,9 +212,9 @@ fn row_to_credential(row: &Row) -> rusqlite::Result<Credential> {
         encrypted_totp_secret: row.get(6)?,
         url: row.get(7)?,
         tags,
-        created_at: parse_datetime(row.get::<_, String>(9)?),
-        updated_at: parse_datetime(row.get::<_, String>(10)?),
-        accessed_at: accessed_at.map(parse_datetime),
+        created_at: parse_datetime(&row.get::<_, String>(9)?),
+        updated_at: parse_datetime(&row.get::<_, String>(10)?),
+        accessed_at: accessed_at.as_deref().map(parse_datetime),
     })
 }
 
@@ -225,10 +225,10 @@ fn row_to_credential(row: &Row) -> rusqlite::Result<Credential> {
 /// Create an audit log entry
 pub fn create_audit_log(conn: &Connection, log: &AuditLog) -> DbResult<i64> {
     conn.execute(
-        r#"
+        r"
         INSERT INTO audit_log (timestamp, action, credential_id, credential_name, username, details, hmac)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-        "#,
+        ",
         params![
             log.timestamp.to_rfc3339(),
             log.action.as_str(),
@@ -246,17 +246,17 @@ pub fn create_audit_log(conn: &Connection, log: &AuditLog) -> DbResult<i64> {
 /// Get recent audit logs
 pub fn get_recent_audit_logs(conn: &Connection, limit: usize) -> DbResult<Vec<AuditLog>> {
     let mut stmt = conn.prepare(
-        r#"
+        r"
         SELECT id, timestamp, action, credential_id, credential_name, username, details, hmac
         FROM audit_log
         ORDER BY timestamp DESC
         LIMIT ?1
-        "#,
+        ",
     )?;
 
     let logs = stmt
         .query_map([limit], row_to_audit_log)?
-        .filter_map(|r| r.ok())
+        .filter_map(Result::ok)
         .collect();
 
     Ok(logs)
@@ -265,17 +265,17 @@ pub fn get_recent_audit_logs(conn: &Connection, limit: usize) -> DbResult<Vec<Au
 /// Get audit logs for a credential
 pub fn get_credential_audit_logs(conn: &Connection, credential_id: &str) -> DbResult<Vec<AuditLog>> {
     let mut stmt = conn.prepare(
-        r#"
+        r"
         SELECT id, timestamp, action, credential_id, credential_name, username, details, hmac
         FROM audit_log
         WHERE credential_id = ?1
         ORDER BY timestamp DESC
-        "#,
+        ",
     )?;
 
     let logs = stmt
         .query_map([credential_id], row_to_audit_log)?
-        .filter_map(|r| r.ok())
+        .filter_map(Result::ok)
         .collect();
 
     Ok(logs)
@@ -284,7 +284,7 @@ pub fn get_credential_audit_logs(conn: &Connection, credential_id: &str) -> DbRe
 fn row_to_audit_log(row: &Row) -> rusqlite::Result<AuditLog> {
     Ok(AuditLog {
         id: row.get(0)?,
-        timestamp: parse_datetime(row.get::<_, String>(1)?),
+        timestamp: parse_datetime(&row.get::<_, String>(1)?),
         action: AuditAction::from_str(&row.get::<_, String>(2)?),
         credential_id: row.get(3)?,
         credential_name: row.get(4)?,
@@ -298,10 +298,8 @@ fn row_to_audit_log(row: &Row) -> rusqlite::Result<AuditLog> {
 // Helpers
 // ============================================================================
 
-fn parse_datetime(s: String) -> DateTime<Local> {
-    DateTime::parse_from_rfc3339(&s)
-        .map(|dt| dt.with_timezone(&Local))
-        .unwrap_or_else(|_| Local::now())
+fn parse_datetime(s: &str) -> DateTime<Local> {
+    DateTime::parse_from_rfc3339(s).map_or_else(|_| Local::now(), |dt| dt.with_timezone(&Local))
 }
 
 #[cfg(test)]

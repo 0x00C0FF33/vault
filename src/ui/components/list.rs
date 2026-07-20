@@ -160,18 +160,18 @@ fn build_selection_symbol(is_selected: bool) -> Span<'static> {
     }
 }
 
-fn build_item_spans<'a>(
-    item: &'a CredentialItem,
+fn build_item_spans(
+    item: &CredentialItem,
     is_selected: bool,
     highlight_style: Style,
     show_username: bool,
-) -> Vec<Span<'a>> {
+) -> Vec<Span<'_>> {
     let base_style = if is_selected { highlight_style } else { Style::default() };
     let icon = item.credential_type.icon();
     let color = type_color(item.credential_type);
     let mut spans = vec![
         build_selection_symbol(is_selected),
-        Span::styled(format!("{} ", icon), base_style.fg(color)),
+        Span::styled(format!("{icon} "), base_style.fg(color)),
         Span::styled(item.name.as_str(), base_style.fg(Color::White)),
     ];
     append_username_span(&mut spans, item, base_style, show_username);
@@ -182,18 +182,18 @@ fn append_username_span<'a>(spans: &mut Vec<Span<'a>>, item: &'a CredentialItem,
     if !show_username { return }
     let Some(ref username) = item.username else { return };
     spans.push(Span::styled(
-        format!(" ({})", username),
-        base_style.fg(Renderer::hex_color(0x4C566A)),
+        format!(" ({username})"),
+        base_style.fg(Renderer::hex_color(0x004C_566A)),
     ));
 }
 
-fn build_list_item<'a>(
-    item: &'a CredentialItem,
+fn build_list_item(
+    item: &CredentialItem,
     index: usize,
     selected: Option<usize>,
     highlight_style: Style,
     show_username: bool,
-) -> ListItem<'a> {
+) -> ListItem<'_> {
     let is_selected = Some(index) == selected;
     let spans = build_item_spans(item, is_selected, highlight_style, show_username);
     let mut list_item = ListItem::new(Line::from(spans));
@@ -205,7 +205,7 @@ fn build_list_item<'a>(
     list_item
 }
 
-impl<'a> StatefulWidget for CredentialList<'a> {
+impl StatefulWidget for CredentialList<'_> {
     type State = ListViewState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
@@ -250,9 +250,9 @@ impl<'a> EmptyState<'a> {
     }
 }
 
-impl<'a> Widget for EmptyState<'a> {
+impl Widget for EmptyState<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let inner = render_optional_block(area, buf, &self.block);
+        let inner = render_optional_block(area, buf, self.block.as_ref());
 
         let center_y = inner.y + inner.height / 2;
         let msg_x = center_x(&inner, self.message.len());
@@ -265,7 +265,7 @@ fn center_x(area: &Rect, text_len: usize) -> u16 {
     area.x + (area.width.saturating_sub(text_len as u16)) / 2
 }
 
-fn render_optional_block(area: Rect, buf: &mut Buffer, block: &Option<Block>) -> Rect {
+fn render_optional_block(area: Rect, buf: &mut Buffer, block: Option<&Block>) -> Rect {
     let Some(block) = block else { return area };
     let inner = block.inner(area);
     block.clone().render(area, buf);

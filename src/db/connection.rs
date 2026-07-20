@@ -1,6 +1,6 @@
 //! Database Connection Management
 //!
-//! Handles SQLite database connections and configuration.
+//! Handles `SQLite` database connections and configuration.
 
 use std::path::{Path, PathBuf};
 
@@ -150,10 +150,12 @@ fn create_dir_or_error(path: &Path) -> DbResult<()> {
     Ok(())
 }
 
+// Takes the error by value so it can be passed point-free to `map_err`.
+#[allow(clippy::needless_pass_by_value)]
 fn make_dir_error(e: std::io::Error) -> rusqlite::Error {
     rusqlite::Error::SqliteFailure(
         rusqlite::ffi::Error::new(1),
-        Some(format!("Failed to create directory: {}", e)),
+        Some(format!("Failed to create directory: {e}")),
     )
 }
 

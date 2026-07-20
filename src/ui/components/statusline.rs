@@ -79,6 +79,9 @@ impl<'a> StatusLine<'a> {
     }
 }
 
+// One arm per mode keeps this readable as a table; two modes sharing a colour
+// is incidental, not a reason to merge them.
+#[allow(clippy::match_same_arms)]
 fn mode_style(mode: InputMode) -> Style {
     let base = Style::default().fg(Color::Black);
     match mode {
@@ -175,7 +178,7 @@ fn render_right_section(
     buf.set_line(x, area.y, &line, width);
 }
 
-impl<'a> Widget for StatusLine<'a> {
+impl Widget for StatusLine<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         buf.set_style(area, Style::default().bg(Color::DarkGray));
 
@@ -195,7 +198,7 @@ pub struct HelpBar<'a> {
     hints: Vec<(&'a str, &'a str)>,
 }
 
-impl<'a> HelpBar<'a> {
+impl HelpBar<'_> {
     pub fn for_mode(mode: InputMode) -> Self {
         Self { hints: hints_for_mode(mode) }
     }
@@ -257,13 +260,13 @@ fn build_hint_spans<'a>(hints: &[(&'a str, &'a str)]) -> Vec<Span<'a>> {
             spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
         }
         spans.push(Span::styled(*key, Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
-        spans.push(Span::styled(format!(" {}", desc), Style::default().fg(Color::Gray)));
+        spans.push(Span::styled(format!(" {desc}"), Style::default().fg(Color::Gray)));
     }
 
     spans
 }
 
-impl<'a> Widget for HelpBar<'a> {
+impl Widget for HelpBar<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let spans = build_hint_spans(&self.hints);
         let line = Line::from(spans);

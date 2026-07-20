@@ -82,7 +82,7 @@ impl KeyHierarchy {
 
         // Update internal state
         self.master_key = new_master_key;
-        self.wrapped_dek = new_wrapped_dek.clone();
+        self.wrapped_dek.clone_from(&new_wrapped_dek);
 
         Ok(new_wrapped_dek)
     }
@@ -105,8 +105,8 @@ impl KeyHierarchy {
 
 /// Core HKDF key derivation
 fn derive_key(ikm: &[u8], context: &str, info: &str) -> CryptoResult<DerivedKey> {
-    let salt = format!("vault-{}", context);
-    let info_bytes = format!("{}:{}", context, info);
+    let salt = format!("vault-{context}");
+    let info_bytes = format!("{context}:{info}");
 
     let hk = Hkdf::<Sha256>::new(Some(salt.as_bytes()), ikm);
 
@@ -164,7 +164,7 @@ mod tests {
         // Initial setup
         let (old_master_key, _) = derive_master_key(b"old_password", &params).unwrap();
         let mut hierarchy = KeyHierarchy::new(old_master_key).unwrap();
-        let original_dek = hierarchy.dek().as_bytes().clone();
+        let original_dek = *hierarchy.dek().as_bytes();
 
         // Change password
         let (new_master_key, _) = derive_master_key(b"new_password", &params).unwrap();

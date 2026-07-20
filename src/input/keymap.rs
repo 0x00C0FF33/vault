@@ -2,6 +2,10 @@
 //!
 //! Vim-style key bindings mapped to actions.
 
+// Each binding gets its own arm even when two keys share an action; collapsing
+// them into or-patterns would obscure which keys are bound.
+#![allow(clippy::match_same_arms)]
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind, MouseButton};
 
 /// Actions that can be triggered by key presses
@@ -168,8 +172,8 @@ pub fn text_input_action(key: KeyEvent) -> Action {
 /// Map key event to action in confirm mode
 pub fn confirm_action(key: KeyEvent) -> Action {
     match key.code {
-        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => Action::Confirm,
-        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => Action::Cancel,
+        KeyCode::Char('y' | 'Y') | KeyCode::Enter => Action::Confirm,
+        KeyCode::Char('n' | 'N') | KeyCode::Esc => Action::Cancel,
         _ => Action::None,
     }
 }

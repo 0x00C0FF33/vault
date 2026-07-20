@@ -160,7 +160,7 @@ impl ExportDialog {
 
         let enc_ext = self.encryption.file_extension();
 
-        self.path.set_content(&format!("{}{}{}", base, format_ext, enc_ext));
+        self.path.set_content(&format!("{base}{format_ext}{enc_ext}"));
     }
 
     pub fn insert_char(&mut self, c: char) {
@@ -212,13 +212,13 @@ fn default_export_path(format: ExportFormat, encryption: ExportEncryption) -> St
 
     let home_path = dirs::home_dir();
     match home_path {
-        Some(p) => build_export_path_from_home(p, format_ext, enc_ext),
-        None => format!("./vault_export{}{}", format_ext, enc_ext),
+        Some(p) => build_export_path_from_home(&p, format_ext, enc_ext),
+        None => format!("./vault_export{format_ext}{enc_ext}"),
     }
 }
 
-fn build_export_path_from_home(home: std::path::PathBuf, format_ext: &str, enc_ext: &str) -> String {
-    home.join(format!("vault_export{}{}", format_ext, enc_ext))
+fn build_export_path_from_home(home: &std::path::Path, format_ext: &str, enc_ext: &str) -> String {
+    home.join(format!("vault_export{format_ext}{enc_ext}"))
         .to_string_lossy()
         .into_owned()
 }
@@ -414,7 +414,7 @@ fn render_select_field(
     
     fill_background(buf, value_x, y, value_width, bg_color);
 
-    let display = format!("{}  [Space/Ctrl+Space]", value);
+    let display = format!("{value}  [Space/Ctrl+Space]");
     let value_style = Style::default().fg(Color::Yellow).bg(bg_color);
     buf.set_string(value_x, y, &display, value_style);
 }

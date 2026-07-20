@@ -1,6 +1,6 @@
 //! Database Schema
 //!
-//! SQLite schema with FTS5 for full-text search.
+//! `SQLite` schema with FTS5 for full-text search.
 
 use rusqlite::Connection;
 
@@ -20,17 +20,17 @@ pub fn init_schema(conn: &Connection) -> DbResult<()> {
         )
         .unwrap_or(false);
 
-    if !has_schema {
-        create_schema(conn)?;
-    } else {
+    if has_schema {
         migrate_schema(conn)?;
+    } else {
+        create_schema(conn)?;
     }
 
     Ok(())
 }
 
 fn migrate_schema(conn: &Connection) -> DbResult<()> {
-    let version = get_schema_version(conn).unwrap_or(0);
+    let version = get_schema_version(conn);
     if version >= 3 {
         return Ok(());
     }
@@ -47,8 +47,7 @@ fn migrate_to_v3(conn: &Connection) -> DbResult<()> {
 
 fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
     let sql = format!(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('{}') WHERE name='{}'",
-        table, column
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name='{column}'"
     );
     conn.query_row(&sql, [], |row| row.get(0)).unwrap_or(false)
 }
@@ -56,7 +55,7 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
 /// Create the full schema
 fn create_schema(conn: &Connection) -> DbResult<()> {
     conn.execute_batch(
-        r#"
+        r"
         -- Metadata table for vault configuration
         CREATE TABLE IF NOT EXISTS metadata (
             key TEXT PRIMARY KEY,
@@ -126,14 +125,14 @@ fn create_schema(conn: &Connection) -> DbResult<()> {
 
         -- Store schema version
         INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '3');
-        "#,
+        ",
     )?;
 
     Ok(())
 }
 
 /// Get current schema version
-pub fn get_schema_version(conn: &Connection) -> DbResult<i32> {
+pub fn get_schema_version(conn: &Connection) -> i32 {
     let version: String = conn
         .query_row(
             "SELECT value FROM metadata WHERE key = 'schema_version'",
@@ -142,7 +141,7 @@ pub fn get_schema_version(conn: &Connection) -> DbResult<i32> {
         )
         .unwrap_or_else(|_| "0".to_string());
 
-    Ok(version.parse().unwrap_or(0))
+    version.parse().unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -160,7 +159,7 @@ mod tests {
             .unwrap()
             .query_map([], |row| row.get(0))
             .unwrap()
-            .filter_map(|r| r.ok())
+            .filter_map(Result::ok)
             .collect();
 
         assert!(tables.contains(&"credentials".to_string()));
@@ -173,7 +172,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
 
-        let version = get_schema_version(&conn).unwrap();
+        let version = get_schema_version(&conn);
         assert_eq!(version, SCHEMA_VERSION);
     }
 
@@ -187,8 +186,8 @@ mod tests {
 
     fn insert_test_fts_credential(conn: &Connection) {
         conn.execute(
-            r#"INSERT INTO credentials (id, name, credential_type, encrypted_secret, created_at, updated_at)
-            VALUES ('test-1', 'GitHub Token', 'api_key', 'encrypted', datetime('now'), datetime('now'))"#,
+            r"INSERT INTO credentials (id, name, credential_type, encrypted_secret, created_at, updated_at)
+            VALUES ('test-1', 'GitHub Token', 'api_key', 'encrypted', datetime('now'), datetime('now'))",
             [],
         )
         .unwrap();

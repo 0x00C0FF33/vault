@@ -44,7 +44,7 @@ mod tests {
         let key = test_key();
         let blob = encrypt_string(key.as_ref(), "secret").unwrap();
         let mut cred = Credential::new(name.to_string(), ctype, blob);
-        cred.tags = tags.into_iter().map(|s| s.to_string()).collect();
+        cred.tags = tags.into_iter().map(ToString::to_string).collect();
         cred
     }
 

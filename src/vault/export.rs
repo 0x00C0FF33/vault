@@ -5,6 +5,7 @@
 //! - age (ChaCha20-Poly1305): `age -d export.age`
 //! - Plaintext: No encryption (dangerous!)
 
+use std::fmt::Write as _;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -75,25 +76,25 @@ impl ExportCredential {
         let mut output = format!("Name: {}\n", self.name);
 
         if self.credential_type != CredentialType::Password {
-            output.push_str(&format!("Type: {}\n", self.credential_type.display_name()));
+            let _ = writeln!(output, "Type: {}", self.credential_type.display_name());
         }
 
         if let Some(username) = &self.username {
-            output.push_str(&format!("Username: {}\n", username));
+            let _ = writeln!(output, "Username: {username}");
         }
 
-        output.push_str(&format!("Secret: {}\n", self.secret));
+        let _ = writeln!(output, "Secret: {}", self.secret);
 
         if let Some(url) = &self.url {
-            output.push_str(&format!("URL: {}\n", url));
+            let _ = writeln!(output, "URL: {url}");
         }
 
         if !self.tags.is_empty() {
-            output.push_str(&format!("Tags: {}\n", self.tags.join(", ")));
+            let _ = writeln!(output, "Tags: {}", self.tags.join(", "));
         }
 
         if let Some(notes) = &self.notes {
-            output.push_str(&format!("Notes: {}\n", notes));
+            let _ = writeln!(output, "Notes: {notes}");
         }
 
         output
@@ -121,7 +122,7 @@ impl ExportData {
 
     pub fn to_json(&self) -> VaultResult<String> {
         serde_json::to_string_pretty(self)
-            .map_err(|e| VaultError::OperationFailed(format!("JSON serialization failed: {}", e)))
+            .map_err(|e| VaultError::OperationFailed(format!("JSON serialization failed: {e}")))
     }
 
     pub fn to_text(&self) -> String {
@@ -130,7 +131,7 @@ impl ExportData {
             self.exported_at, self.credential_count
         );
 
-        let credentials: Vec<_> = self.credentials.iter().map(|c| c.format_to_text()).collect();
+        let credentials: Vec<_> = self.credentials.iter().map(ExportCredential::format_to_text).collect();
 
         header + &credentials.join("\n---\n\n")
     }
@@ -142,8 +143,7 @@ pub fn gpg_available() -> bool {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .is_ok_and(|s| s.success())
 }
 
 pub fn age_available() -> bool {
@@ -152,8 +152,7 @@ pub fn age_available() -> bool {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .is_ok_and(|s| s.success())
 }
 
 fn ensure_parent_dir(output_path: &Path) -> VaultResult<()> {
@@ -166,12 +165,12 @@ fn ensure_parent_dir(output_path: &Path) -> VaultResult<()> {
     }
 
     std::fs::create_dir_all(parent)
-        .map_err(|e| VaultError::IoError(format!("Failed to create directory: {}", e)))
+        .map_err(|e| VaultError::IoError(format!("Failed to create directory: {e}")))
 }
 
 fn require_passphrase<'a>(passphrase: Option<&'a str>, method: &str) -> VaultResult<&'a str> {
     passphrase.ok_or_else(|| {
-        VaultError::OperationFailed(format!("Passphrase required for {} encryption", method))
+        VaultError::OperationFailed(format!("Passphrase required for {method} encryption"))
     })
 }
 
@@ -229,7 +228,7 @@ fn encrypt_with_gpg(content: &str, passphrase: &str, output_path: &Path) -> Vaul
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| VaultError::IoError(format!("Failed to spawn gpg: {}", e)))?;
+        .map_err(|e| VaultError::IoError(format!("Failed to spawn gpg: {e}")))?;
 
     let stdin = child.stdin.as_mut()
         .ok_or_else(|| VaultError::IoError("Failed to open gpg stdin".into()))?;
@@ -239,7 +238,7 @@ fn encrypt_with_gpg(content: &str, passphrase: &str, output_path: &Path) -> Vaul
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(VaultError::OperationFailed(format!("gpg encryption failed: {}", stderr)));
+        return Err(VaultError::OperationFailed(format!("gpg encryption failed: {stderr}")));
     }
 
     Ok(())
@@ -263,7 +262,7 @@ fn encrypt_with_age(content: &str, passphrase: &str, output_path: &Path) -> Vaul
         .stderr(Stdio::piped())
         .env("AGE_PASSPHRASE", passphrase)
         .spawn()
-        .map_err(|e| VaultError::IoError(format!("Failed to spawn age: {}", e)))?;
+        .map_err(|e| VaultError::IoError(format!("Failed to spawn age: {e}")))?;
 
     let stdin = child.stdin.as_mut()
         .ok_or_else(|| VaultError::IoError("Failed to open age stdin".into()))?;
@@ -273,13 +272,13 @@ fn encrypt_with_age(content: &str, passphrase: &str, output_path: &Path) -> Vaul
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(VaultError::OperationFailed(format!("age encryption failed: {}", stderr)));
+        return Err(VaultError::OperationFailed(format!("age encryption failed: {stderr}")));
     }
 
     Ok(())
 }
 
-/// Helper to convert a Credential (with encrypted fields) to ExportCredential
+/// Helper to convert a Credential (with encrypted fields) to `ExportCredential`
 /// The caller is responsible for decrypting the secret and notes before calling this
 pub fn credential_to_export(
     cred: &Credential,
