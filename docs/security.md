@@ -22,9 +22,9 @@ access to the user's home directory — while the vault is locked.
   every credential.
 - **Swap and core-dump leakage.** Key material is memory-locked and the
   process is marked non-dumpable.
-- **Silent modification of audit records.** Each entry is signed; altering
-  a signed field invalidates it. See [Audit trail](#audit-trail) for what
-  this does *not* cover.
+- **Tampering with audit records.** Entries are hash-chained and the
+  chain head is signed, so modification, deletion, reordering and
+  truncation are all detectable. See [Audit trail](#audit-trail).
 
 ### Not defended
 
@@ -179,33 +179,54 @@ Sensitive actions — unlock, create, read, copy, update, delete, export —
 are written to `audit_log`, each row signed with HMAC-SHA256 under a key
 derived from the DEK (`vault/audit.rs`).
 
-The signed message is:
+Entries form a hash chain. Each signature covers the entry's own fields
+*and* the HMAC of the entry before it:
 
 ```
-action ":" credential_id ":" credential_name ":" username ":" details
+hmac[i] = HMAC(audit_key, hmac[i-1] ‖ timestamp ‖ action
+                          ‖ credential_id ‖ credential_name
+                          ‖ username ‖ details)
 ```
 
-Verification runs on unlock and on demand via `:audit`.
+The first entry chains onto a fixed genesis string. Fields are
+length-prefixed before signing, so no arrangement of field contents can
+produce another arrangement's message.
+
+Removing or reordering an entry changes what the next entry chains onto,
+so that entry stops verifying. Deleting from the *end* leaves a
+self-consistent chain, so the head — the entry count and the final HMAC —
+is signed separately and stored in `audit_head`.
+
+Verification walks entries in `id` order. Each is checked against its
+predecessor's **stored** HMAC rather than the recomputed one, so a
+modified entry flags only itself and attribution stays precise.
+
+Both checks run on unlock and on demand via `:audit`. Comparisons are
+constant-time.
+
+### What is detected
+
+| Manipulation | Detected by |
+| --- | --- |
+| Modifying a signed field | that entry's signature |
+| Editing a timestamp | that entry's signature |
+| Deleting an entry | the following entry's chain link |
+| Reordering entries | the chain |
+| Deleting from the end | the signed head |
+| Forging or re-signing entries | requires the audit key, derived from the DEK |
 
 ### Limitations
 
-The signature covers the fields listed above and nothing else. Concretely:
-
-- **Deletion is not detected.** Each row is signed independently; there
-  is no chaining and no signed count. Removing a row leaves the remaining
-  rows individually valid. An attacker who can write to the database can
-  erase evidence of their actions.
-- **Timestamps are not signed.** `timestamp` is outside the HMAC message,
-  so it can be altered without invalidating the row.
-- **Reordering is not detected**, for the same reason.
-- **Comparison is not constant-time** (`verify_log` uses `==` on hex
-  strings). This is a local, attacker-untimed operation, so the practical
-  risk is negligible, but it is not a constant-time check.
-
-The audit trail therefore detects **modification of signed fields**. It
-is not tamper-*proof*, and should not be relied on as evidence that
-nothing happened. Closing the deletion gap requires chaining each entry
-to its predecessor's HMAC and signing the timestamp.
+- **Whole-database rollback is not detected.** Replacing the vault file
+  with an older complete copy yields a valid chain and a valid head.
+  Defending against this needs an anchor outside the file.
+- **Detection is not prevention.** An attacker with write access can
+  still destroy the log; verification tells you that it happened, not
+  that it did not.
+- **The key lives with the data.** The audit key derives from the DEK, so
+  an attacker who learns the password can rewrite the entire log
+  undetectably. The chain protects against tampering by someone who has
+  the file but not the password.
 
 ## Clipboard
 
@@ -232,18 +253,18 @@ An unencrypted export is plaintext credentials on disk with no protection
 whatsoever. The option exists because it is occasionally necessary; it
 should be treated as a deliberate, temporary act.
 
-The two backends receive the passphrase differently:
+The two backends work differently:
 
-- **GPG** is invoked with `--passphrase-fd 0` and the passphrase written
-  to stdin, so it never appears in the process table.
-- **age** is invoked with `--passphrase` and the value placed in the
-  `AGE_PASSPHRASE` environment variable. A process environment is
-  readable by the same user and by root via `/proc/<pid>/environ`, which
-  is weaker than the stdin path. `AGE_PASSPHRASE` is also not an option
-  documented by upstream age; whether it is honoured depends on the
-  installed implementation, and `test_age_export` skips silently when
-  `age` is absent, so this path may be untested in a given environment.
-  Prefer GPG until this is reconciled.
+- **GPG** is an external process, invoked with `--passphrase-fd 0` and
+  the passphrase written to stdin, so it never appears in the process
+  table. It must be installed.
+- **age** is linked in as a library (the `age` crate) rather than shelled
+  out. The passphrase never leaves the process, and no `age` binary is
+  required. Output is standard age format and decrypts with `age -d`.
+
+age is used in-process because the `age` CLI reads passphrases from the
+controlling terminal, which this program holds in raw mode; driving it
+non-interactively would require a pty.
 
 ## Reporting
 

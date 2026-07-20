@@ -34,6 +34,8 @@ Key/value store for everything that is not a credential.
 | `kdf_params` | Argon2 cost parameters, JSON. |
 | `kdf_verifier` | 32-byte password verifier, hex. |
 | `wrapped_dek` | DEK encrypted under the master key, hex. |
+| `audit_version` | Audit signing scheme version. Currently `2`. |
+| `audit_head` | Signed chain head: HMAC over the entry count and final entry HMAC. |
 | `pending_failed_unlocks` | Failed unlock count since last successful unlock. |
 | `last_failed_unlock_at` | Timestamp of the most recent failed unlock. |
 
@@ -92,24 +94,25 @@ ciphertext.
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | INTEGER PRIMARY KEY AUTOINCREMENT | |
-| `timestamp` | TEXT NOT NULL | RFC 3339 — **not** covered by the HMAC |
-| `action` | TEXT NOT NULL | see below |
+| `id` | INTEGER PRIMARY KEY AUTOINCREMENT | chain order |
+| `timestamp` | TEXT NOT NULL | RFC 3339, signed |
+| `action` | TEXT NOT NULL | signed; see below |
 | `credential_id` | TEXT | signed |
 | `credential_name` | TEXT | signed |
 | `username` | TEXT | signed |
 | `details` | TEXT | signed |
-| `hmac` | TEXT NOT NULL | HMAC-SHA256, hex |
+| `hmac` | TEXT NOT NULL | HMAC-SHA256, hex; covers the row **and** the previous row's hmac |
 
-Indexed on `timestamp DESC`.
+Indexed on `timestamp DESC`. Chain verification orders by `id`, which is
+the sequence entries were signed in.
 
 `action` is one of `create`, `read`, `update`, `delete`, `copy`,
 `export`, `import`, `unlock`, `lock`, `failed_unlock`. Any other value
 parses to `Unknown` and renders as `UNKNOWN`, so an unrecognised or
 corrupt row is never displayed as ordinary activity.
 
-For what the signature does and does not cover, see
-[security.md](security.md#limitations).
+For what the chain detects, see
+[security.md](security.md#what-is-detected).
 
 ## Format versions
 
@@ -146,6 +149,20 @@ transaction, an interrupted conversion leaves the vault openable by the
 version 1 path and it is retried on the next unlock.
 
 An incorrect password converts nothing.
+
+### `audit_version` — audit signing
+
+Checked at unlock, after the key hierarchy is available. Version 2 is the
+hash chain described in
+[security.md](security.md#audit-trail). Version 1 is implicit: entries
+signed individually, without the timestamp or a predecessor.
+
+A version 1 log is converted on the next unlock. Each entry is checked
+under the version 1 rules and, if it passes, re-signed into the chain. An
+entry that fails keeps its stored HMAC, so it continues to report as
+tampered instead of being laundered into a valid chain; later entries
+chain onto that stored value and verify normally, keeping the damage
+attributed to the entry it belongs to.
 
 ## Export formats
 

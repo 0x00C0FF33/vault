@@ -26,7 +26,7 @@ Self-hosted, local-first architecture - your credentials never touch our servers
 - **Auto-lock:** Automatically lock vault after 3 minutes of inactivity
 - **Export:** Flexible credential export with format and encryption options
     - **Formats:** JSON, Plain Text
-    - **Encryption:** None (not recommended), GPG (AES-256), age (ChaCha20-Poly1305)
+    - **Encryption:** None (not recommended), GPG (AES-256, requires `gpg`), age (ChaCha20-Poly1305, built in)
     - **Supports filtered export** when search or tag filters are active
 
 <a name="installation"></a>
@@ -160,9 +160,10 @@ Your vault lives at `~/.local/share/vault/vault.db` on Linux; see [docs/storage.
 
 ### Audit Trail
 - **Audit Trail** all sensitive actions logged (unlock, create, read, copy, update, delete, export)
-- **HMAC-SHA256** signatures on each log entry
+- **HMAC-SHA256** signatures, hash-chained so each entry commits to the one before it
+- **Signed chain head** covering the entry count, so truncation is detectable
 - **Tamper detection** on unlock and via `:audit` command
-- **Detects modification** of signed fields. Entries are signed individually and timestamps are not covered, so deletion, reordering and timestamp edits are **not** detected - see [docs/security.md](docs/security.md#limitations)
+- **Detects** modification, timestamp edits, deletion, reordering and truncation - see [docs/security.md](docs/security.md#what-is-detected)
 
 ### What is not encrypted
 
@@ -203,6 +204,7 @@ Reference documentation for contributors lives in [docs/](docs/):
 - [`sha2`](https://crates.io/crates/sha2)
 - [`hmac`](https://crates.io/crates/hmac)
 - [`sha1`](https://crates.io/crates/sha1)
+- [`age`](https://crates.io/crates/age)
 - [`rand`](https://crates.io/crates/rand)
 - [`subtle`](https://crates.io/crates/subtle)
 - [`secrecy`](https://crates.io/crates/secrecy)
