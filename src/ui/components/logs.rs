@@ -133,7 +133,7 @@ impl LogsState {
     }
 
     pub fn max_h_scroll(&self, visible_width: u16) -> usize {
-        let total = self.columns.as_ref().map(|c| c.total_width()).unwrap_or(0);
+        let total = self.columns.as_ref().map_or(0, LogsColumns::total_width);
         (total as usize).saturating_sub(visible_width as usize)
     }
 
@@ -296,5 +296,6 @@ fn action_display(action: &AuditAction) -> (&'static str, Color) {
         AuditAction::Unlock => ("UNLOCK", Color::Cyan),
         AuditAction::Lock => ("LOCK", Color::Yellow),
         AuditAction::FailedUnlock => ("FAILED", Color::Red),
+        AuditAction::Unknown => ("UNKNOWN", Color::Red),
     }
 }

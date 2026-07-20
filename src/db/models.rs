@@ -124,6 +124,10 @@ pub enum AuditAction {
     Unlock,
     Lock,
     FailedUnlock,
+    /// A stored action string that did not match any known variant. Kept
+    /// distinct so a corrupt or future-version row is never displayed as a
+    /// routine read.
+    Unknown,
 }
 
 impl AuditAction {
@@ -139,6 +143,7 @@ impl AuditAction {
             Self::Unlock => "unlock",
             Self::Lock => "lock",
             Self::FailedUnlock => "failed_unlock",
+            Self::Unknown => "unknown",
         }
     }
 
@@ -154,7 +159,7 @@ impl AuditAction {
             "unlock" => Self::Unlock,
             "lock" => Self::Lock,
             "failed_unlock" => Self::FailedUnlock,
-            _ => Self::Read,
+            _ => Self::Unknown,
         }
     }
 }
@@ -214,6 +219,35 @@ mod tests {
         for ct in types {
             assert_eq!(CredentialType::from_str(ct.as_str()), ct);
         }
+    }
+
+    #[test]
+    fn test_audit_action_roundtrip() {
+        let actions = [
+            AuditAction::Create,
+            AuditAction::Read,
+            AuditAction::Update,
+            AuditAction::Delete,
+            AuditAction::Copy,
+            AuditAction::Export,
+            AuditAction::Import,
+            AuditAction::Unlock,
+            AuditAction::Lock,
+            AuditAction::FailedUnlock,
+            AuditAction::Unknown,
+        ];
+
+        for action in actions {
+            assert_eq!(AuditAction::from_str(action.as_str()), action);
+        }
+    }
+
+    #[test]
+    fn test_audit_action_unrecognized_is_not_read() {
+        // A corrupt or future-version row must not be reported as a routine
+        // read, which would understate what the audit log shows.
+        assert_eq!(AuditAction::from_str("frobnicate"), AuditAction::Unknown);
+        assert_eq!(AuditAction::from_str(""), AuditAction::Unknown);
     }
 
     #[test]
