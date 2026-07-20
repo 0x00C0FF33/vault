@@ -118,17 +118,18 @@ For what the chain detects, see
 
 ## Format versions
 
-Two independent version numbers, because table structure and key
-derivation change for different reasons.
+Three independent version numbers, because table structure, key
+derivation and audit signing change for different reasons. Each is
+checked, and a marker exists only because something branches on it.
 
 ### `schema_version` — table structure
 
-Checked at open (`db/schema.rs`). Version 3 added
-`encrypted_totp_secret`. Migrations are additive and idempotent:
-`migrate_to_v3` guards its `ALTER TABLE` with a `has_column` check, so
-running it twice is harmless.
+Checked at open (`db/schema.rs`). A database carrying a different version
+is refused with `DbError::UnsupportedVersion`.
 
-A vault whose `schema_version` is already current is left alone.
+The version is written from the `SCHEMA_VERSION` constant rather than
+inlined in the DDL, so bumping the constant cannot stamp new databases
+with a number their own check would reject.
 
 ### `kdf_version` — key material
 
@@ -142,10 +143,11 @@ described in [security.md](security.md#audit-trail).
 
 ### Vaults this build cannot open
 
-Both checks are strict: a vault whose `kdf_version` or `audit_version` is
-missing or unrecognised is rejected with `VaultError::UnsupportedFormat`
-rather than being read on a guess. The error names the version found and
-the version expected.
+All three checks are strict: a vault whose `schema_version`,
+`kdf_version` or `audit_version` is missing or unrecognised is rejected —
+`DbError::UnsupportedVersion` for the first, `VaultError::UnsupportedFormat`
+for the others — rather than being read on a guess. Each error names the
+version found and the version expected.
 
 Conversion code for earlier layouts was removed once no such vault
 remained. It is still in the git history, so recovering an old vault

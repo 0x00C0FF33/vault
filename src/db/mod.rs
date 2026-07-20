@@ -18,9 +18,9 @@ pub enum DbError {
     #[error("Not found: {0}")]
     NotFound(String),
 
-    #[error("Migration failed: {0}")]
-    #[allow(dead_code)]
-    MigrationFailed(String),
+    /// The database was written by a schema this build does not read.
+    #[error("Unsupported schema: {0}")]
+    UnsupportedVersion(String),
 }
 
 pub type DbResult<T> = Result<T, DbError>;

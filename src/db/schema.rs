@@ -4,13 +4,16 @@
 
 use rusqlite::Connection;
 
-use super::DbResult;
+use super::{DbError, DbResult};
 
-/// Current schema version
-#[allow(dead_code)]
+/// Table structure this build reads and writes.
+///
+/// A database carrying any other version is refused rather than adapted;
+/// conversion between structures is added when a structure change is, and
+/// removed once no database needs it.
 pub const SCHEMA_VERSION: i32 = 3;
 
-/// Initialize the database schema
+/// Create the schema, or check that an existing one is readable.
 pub fn init_schema(conn: &Connection) -> DbResult<()> {
     let has_schema: bool = conn
         .query_row(
@@ -20,36 +23,26 @@ pub fn init_schema(conn: &Connection) -> DbResult<()> {
         )
         .unwrap_or(false);
 
-    if has_schema {
-        migrate_schema(conn)?;
-    } else {
-        create_schema(conn)?;
+    if !has_schema {
+        return create_schema(conn);
     }
 
-    Ok(())
+    require_current_version(conn)
 }
 
-fn migrate_schema(conn: &Connection) -> DbResult<()> {
+/// Reject a database written by a different schema.
+///
+/// The version is checked rather than inferred, so a mismatch reports what it
+/// found instead of failing later on a missing column.
+fn require_current_version(conn: &Connection) -> DbResult<()> {
     let version = get_schema_version(conn);
-    if version >= 3 {
+    if version == SCHEMA_VERSION {
         return Ok(());
     }
-    migrate_to_v3(conn)
-}
 
-fn migrate_to_v3(conn: &Connection) -> DbResult<()> {
-    if !has_column(conn, "credentials", "encrypted_totp_secret") {
-        conn.execute("ALTER TABLE credentials ADD COLUMN encrypted_totp_secret TEXT", [])?;
-    }
-    conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '3')", [])?;
-    Ok(())
-}
-
-fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
-    let sql = format!(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name='{column}'"
-    );
-    conn.query_row(&sql, [], |row| row.get(0)).unwrap_or(false)
+    Err(DbError::UnsupportedVersion(format!(
+        "database is schema_version {version}, this build reads {SCHEMA_VERSION}"
+    )))
 }
 
 /// Create the full schema
@@ -122,10 +115,15 @@ fn create_schema(conn: &Connection) -> DbResult<()> {
         CREATE INDEX IF NOT EXISTS idx_credentials_type ON credentials(credential_type);
         CREATE INDEX IF NOT EXISTS idx_credentials_updated ON credentials(updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp DESC);
-
-        -- Store schema version
-        INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '3');
         ",
+    )?;
+
+    // Written from the constant rather than inlined above, so bumping
+    // SCHEMA_VERSION cannot leave new databases stamped with an old number
+    // that their own version check would then reject.
+    conn.execute(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?1)",
+        [SCHEMA_VERSION.to_string()],
     )?;
 
     Ok(())
@@ -176,6 +174,35 @@ mod tests {
         assert_eq!(version, SCHEMA_VERSION);
     }
 
+    /// A database from a different schema must say so, not fail later on a
+    /// missing column.
+    #[test]
+    fn test_foreign_schema_version_is_rejected() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '99')",
+            [],
+        )
+        .unwrap();
+
+        assert!(matches!(
+            init_schema(&conn),
+            Err(DbError::UnsupportedVersion(_))
+        ));
+    }
+
+    /// Re-opening an existing database must not be mistaken for a foreign one.
+    #[test]
+    fn test_reopening_current_schema_succeeds() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        init_schema(&conn).unwrap();
+
+        assert_eq!(get_schema_version(&conn), SCHEMA_VERSION);
+    }
+
     #[test]
     fn test_fts_index() {
         let conn = Connection::open_in_memory().unwrap();
@@ -198,3 +225,4 @@ mod tests {
         conn.query_row(sql, [query], |row| row.get(0)).unwrap()
     }
 }
+

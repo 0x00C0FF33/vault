@@ -16,7 +16,7 @@ No nightly features are used.
 ```sh
 cargo build                 # debug
 cargo build --release       # optimised, LTO, stripped
-cargo test                  # 126 tests, all in-crate
+cargo test                  # 128 tests, all in-crate
 cargo clippy --all-targets  # must be silent
 cargo run -- /tmp/test.db   # run against a throwaway vault
 ```
