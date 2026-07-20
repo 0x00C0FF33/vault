@@ -146,14 +146,8 @@ pub fn gpg_available() -> bool {
         .is_ok_and(|s| s.success())
 }
 
-pub fn age_available() -> bool {
-    Command::new("age")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
-}
+// age encryption is linked in rather than shelled out, so there is no
+// availability check to make — see `encrypt_with_age`.
 
 fn ensure_parent_dir(output_path: &Path) -> VaultResult<()> {
     let Some(parent) = output_path.parent() else {
@@ -245,37 +239,35 @@ fn encrypt_with_gpg(content: &str, passphrase: &str, output_path: &Path) -> Vaul
 }
 
 /// Encrypt data using age (ChaCha20-Poly1305)
+/// Encrypt with age using the linked library rather than the `age` binary.
+///
+/// The CLI reads a passphrase from the controlling terminal, which this
+/// program has in raw mode, so driving it non-interactively is not possible
+/// without a pty. Encrypting in-process avoids that entirely and keeps the
+/// passphrase out of both the process table and the environment. Output is
+/// the standard age format and decrypts with `age -d`.
 fn encrypt_with_age(content: &str, passphrase: &str, output_path: &Path) -> VaultResult<()> {
-    if !age_available() {
-        return Err(VaultError::OperationFailed(
-            "age is not installed. Install it with: pacman -S age".into(),
-        ));
-    }
+    use age::secrecy::SecretString;
+    use std::io::Write as _;
 
-    let mut child = Command::new("age")
-        .args([
-            "--passphrase",
-            "--output", output_path.to_str().unwrap_or("-"),
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .env("AGE_PASSPHRASE", passphrase)
-        .spawn()
-        .map_err(|e| VaultError::IoError(format!("Failed to spawn age: {e}")))?;
+    let recipient = age::scrypt::Recipient::new(SecretString::from(passphrase.to_owned()));
 
-    let stdin = child.stdin.as_mut()
-        .ok_or_else(|| VaultError::IoError("Failed to open age stdin".into()))?;
-    stdin.write_all(content.as_bytes()).map_err(|e| VaultError::IoError(e.to_string()))?;
+    let encryptor = age::Encryptor::with_recipients([&recipient as _].into_iter())
+        .map_err(|e| VaultError::OperationFailed(format!("age encryption failed: {e}")))?;
 
-    let output = child.wait_with_output().map_err(|e| VaultError::IoError(e.to_string()))?;
+    let mut encrypted = Vec::new();
+    let mut writer = encryptor
+        .wrap_output(&mut encrypted)
+        .map_err(|e| VaultError::OperationFailed(format!("age encryption failed: {e}")))?;
+    writer
+        .write_all(content.as_bytes())
+        .map_err(|e| VaultError::IoError(e.to_string()))?;
+    writer
+        .finish()
+        .map_err(|e| VaultError::OperationFailed(format!("age encryption failed: {e}")))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(VaultError::OperationFailed(format!("age encryption failed: {stderr}")));
-    }
-
-    Ok(())
+    std::fs::write(output_path, &encrypted)
+        .map_err(|e| VaultError::IoError(format!("Failed to write export: {e}")))
 }
 
 /// Helper to convert a Credential (with encrypted fields) to `ExportCredential`
@@ -413,11 +405,6 @@ mod tests {
 
     #[test]
     fn test_age_export() {
-        if !age_available() {
-            eprintln!("Skipping age test - age not installed");
-            return;
-        }
-
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("export.json.age");
 
@@ -428,11 +415,52 @@ mod tests {
             ExportEncryption::Age,
             Some("testpassword"),
             &path,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(path.exists());
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.starts_with("age-encryption.org"));
+
+        let content = std::fs::read(&path).unwrap();
+        assert!(content.starts_with(b"age-encryption.org"));
+        // The plaintext must not survive into the file.
+        assert!(!String::from_utf8_lossy(&content).contains("GitHub Token"));
+    }
+
+    /// Encrypting is only half the contract: the output has to decrypt back to
+    /// the original under the same passphrase, and refuse a wrong one.
+    #[test]
+    fn test_age_export_round_trips() {
+        use age::secrecy::SecretString;
+        use std::io::Read as _;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("export.json.age");
+
+        let data = sample_export_data();
+        let expected = serde_json::to_string_pretty(&data).unwrap();
+
+        export_to_file(
+            &data,
+            ExportFormat::Json,
+            ExportEncryption::Age,
+            Some("testpassword"),
+            &path,
+        )
+        .unwrap();
+
+        let encrypted = std::fs::read(&path).unwrap();
+
+        let decrypt = |pass: &str| -> Option<String> {
+            let identity = age::scrypt::Identity::new(SecretString::from(pass.to_owned()));
+            let decryptor = age::Decryptor::new(&encrypted[..]).ok()?;
+            let mut reader = decryptor.decrypt([&identity as _].into_iter()).ok()?;
+            let mut out = String::new();
+            reader.read_to_string(&mut out).ok()?;
+            Some(out)
+        };
+
+        assert_eq!(decrypt("testpassword").as_deref(), Some(expected.as_str()));
+        assert!(decrypt("wrongpassword").is_none());
     }
 
     #[test]
