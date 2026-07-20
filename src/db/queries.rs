@@ -281,6 +281,79 @@ pub fn get_credential_audit_logs(conn: &Connection, credential_id: &str) -> DbRe
     Ok(logs)
 }
 
+/// Get every audit log in insertion order.
+///
+/// Ascending `id` is the canonical order for chain verification: it is the
+/// sequence the entries were signed in, and unlike `timestamp` it cannot be
+/// rewritten without breaking the chain.
+pub fn get_all_audit_logs_ascending(conn: &Connection) -> DbResult<Vec<AuditLog>> {
+    let mut stmt = conn.prepare(
+        r"
+        SELECT id, timestamp, action, credential_id, credential_name, username, details, hmac
+        FROM audit_log
+        ORDER BY id ASC
+        ",
+    )?;
+
+    let logs = stmt
+        .query_map([], row_to_audit_log)?
+        .filter_map(Result::ok)
+        .collect();
+
+    Ok(logs)
+}
+
+/// Get the HMAC of the most recent entry, which the next entry chains onto.
+///
+/// `None` when the log is empty.
+pub fn get_last_audit_hmac(conn: &Connection) -> Option<String> {
+    conn.query_row(
+        "SELECT hmac FROM audit_log ORDER BY id DESC LIMIT 1",
+        [],
+        |row| row.get(0),
+    )
+    .ok()
+}
+
+/// Count of audit entries, used when signing the chain head.
+pub fn count_audit_logs(conn: &Connection) -> DbResult<usize> {
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM audit_log", [], |row| row.get(0))?;
+    Ok(usize::try_from(count).unwrap_or(0))
+}
+
+/// Replace an entry's HMAC. Only used when re-signing an existing log into the
+/// chained format.
+pub fn update_audit_hmac(conn: &Connection, id: i64, hmac: &str) -> DbResult<()> {
+    conn.execute(
+        "UPDATE audit_log SET hmac = ?2 WHERE id = ?1",
+        params![id, hmac],
+    )?;
+    Ok(())
+}
+
+// ============================================================================
+// Metadata
+// ============================================================================
+
+/// Read a metadata value, or `None` when the key is absent.
+pub fn get_metadata(conn: &Connection, key: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT value FROM metadata WHERE key = ?1",
+        [key],
+        |row| row.get(0),
+    )
+    .ok()
+}
+
+/// Write a metadata value, replacing any existing one.
+pub fn set_metadata(conn: &Connection, key: &str, value: &str) -> DbResult<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)",
+        [key, value],
+    )?;
+    Ok(())
+}
+
 fn row_to_audit_log(row: &Row) -> rusqlite::Result<AuditLog> {
     Ok(AuditLog {
         id: row.get(0)?,

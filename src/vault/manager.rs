@@ -115,6 +115,7 @@ impl Vault {
         self.db = Some(db);
         self.key_hierarchy = Some(key_hierarchy);
         self.key_material = Some(key_material);
+        self.ensure_audit_chain()?;
         self.update_activity();
 
         Ok(())
@@ -135,8 +136,24 @@ impl Vault {
         self.db = Some(db);
         self.key_hierarchy = Some(key_hierarchy);
         self.key_material = Some(key_material);
+        self.ensure_audit_chain()?;
         self.update_activity();
 
+        Ok(())
+    }
+
+    /// Bring the audit log up to the chained signing scheme.
+    ///
+    /// Runs on unlock because it needs the audit key, which is derived from
+    /// the DEK. Entries that fail verification under the previous scheme are
+    /// left alone and continue to report as tampered.
+    fn ensure_audit_chain(&self) -> VaultResult<()> {
+        let audit_key = self
+            .keys()?
+            .derive_audit_key()
+            .map_err(|e| VaultError::CryptoError(e.to_string()))?;
+
+        super::audit::ensure_chained(self.db()?.conn(), &audit_key)?;
         Ok(())
     }
 

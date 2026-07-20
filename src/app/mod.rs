@@ -185,11 +185,32 @@ impl App {
 
     fn check_audit_integrity(&mut self) {
         let Ok((tampered, total)) = self.verify_audit_logs() else { return };
-        if tampered == 0 { return }
-        self.set_message(
-            &format!("Warning: {tampered} of {total} audit logs may be tampered"),
-            MessageType::Error,
-        );
+
+        if tampered > 0 {
+            self.set_message(
+                &format!("Warning: {tampered} of {total} audit logs may be tampered"),
+                MessageType::Error,
+            );
+            return;
+        }
+
+        // Entries can all verify while the log has been cut short; only the
+        // signed head reveals that.
+        if self.audit_head_is_intact() == Some(false) {
+            self.set_message(
+                "Warning: audit log has been truncated",
+                MessageType::Error,
+            );
+        }
+    }
+
+    /// `None` when the check could not run, so a locked or erroring vault is
+    /// not reported as tampering.
+    fn audit_head_is_intact(&self) -> Option<bool> {
+        let keys = self.vault.keys().ok()?;
+        let audit_key = keys.derive_audit_key().ok()?;
+        let db = self.vault.db().ok()?;
+        crate::vault::audit::verify_chain_head(db.conn(), &audit_key).ok()
     }
 
     pub fn lock(&mut self) {
