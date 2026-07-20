@@ -5,10 +5,9 @@
 //! Uses a wrapped DEK (Data Encryption Key) model so password changes do not
 //! require re-encrypting stored data.
 //!
-//! Key material on disk lives in the `metadata` table. A vault written by the
-//! current scheme carries `kdf_version = 2` plus the salt, cost parameters and
-//! verifier described in [`crate::crypto::kdf`]. A vault predating that scheme
-//! has a `password_hash` row instead, and is migrated on its next unlock.
+//! Key material on disk lives in the `metadata` table: `kdf_version` plus the
+//! salt, cost parameters and verifier described in [`crate::crypto::kdf`]. A
+//! vault written by an older scheme is rejected rather than converted.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -16,16 +15,15 @@ use std::time::{Duration, Instant};
 use rusqlite::Connection;
 
 use crate::crypto::kdf::{
-    create_key_material, verify_and_derive_master_key, verify_legacy_master_key, StoredKeyMaterial,
-    SALT_LEN,
+    create_key_material, verify_and_derive_master_key, StoredKeyMaterial, SALT_LEN,
 };
 use crate::crypto::{DataEncryptionKey, KdfParams, KeyHierarchy, MasterKey};
 use crate::db::{Database, DatabaseConfig};
 
 use super::{VaultError, VaultResult};
 
-/// Marks the key-derivation scheme a vault was written with. Version 1 is
-/// implicit: those vaults have `password_hash` and no `kdf_version` row.
+/// Marks the key-derivation scheme a vault was written with. Vaults not
+/// carrying this version are not readable by this build.
 const KDF_VERSION: &str = "2";
 
 const META_KDF_VERSION: &str = "kdf_version";
@@ -33,7 +31,6 @@ const META_KDF_SALT: &str = "kdf_salt";
 const META_KDF_PARAMS: &str = "kdf_params";
 const META_KDF_VERIFIER: &str = "kdf_verifier";
 const META_WRAPPED_DEK: &str = "wrapped_dek";
-const META_LEGACY_PASSWORD_HASH: &str = "password_hash";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VaultState {
@@ -115,7 +112,7 @@ impl Vault {
         self.db = Some(db);
         self.key_hierarchy = Some(key_hierarchy);
         self.key_material = Some(key_material);
-        self.ensure_audit_chain()?;
+        self.begin_audit_chain()?;
         self.update_activity();
 
         Ok(())
@@ -126,35 +123,31 @@ impl Vault {
             return Err(VaultError::NotFound);
         }
 
-        let mut db = self.open_database()?;
+        let db = self.open_database()?;
 
-        let (key_hierarchy, key_material) = match Self::load_key_material(db.conn())? {
-            Some(stored) => Self::unlock_current(password, &stored, db.conn())?,
-            None => Self::unlock_and_migrate_legacy(password, &mut db)?,
-        };
+        let stored = Self::load_key_material(db.conn())?;
+        super::audit::require_current_version(db.conn())?;
+        let (key_hierarchy, key_material) = Self::unlock_current(password, &stored, db.conn())?;
 
         self.db = Some(db);
         self.key_hierarchy = Some(key_hierarchy);
         self.key_material = Some(key_material);
-        self.ensure_audit_chain()?;
         self.update_activity();
 
         Ok(())
     }
 
-    /// Bring the audit log up to the chained signing scheme.
+    /// Start the audit chain on a new vault.
     ///
-    /// Runs on unlock because it needs the audit key, which is derived from
-    /// the DEK. Entries that fail verification under the previous scheme are
-    /// left alone and continue to report as tampered.
-    fn ensure_audit_chain(&self) -> VaultResult<()> {
+    /// Runs after the key hierarchy exists, because the audit key derives from
+    /// the DEK.
+    fn begin_audit_chain(&self) -> VaultResult<()> {
         let audit_key = self
             .keys()?
             .derive_audit_key()
             .map_err(|e| VaultError::CryptoError(e.to_string()))?;
 
-        super::audit::ensure_chained(self.db()?.conn(), &audit_key)?;
-        Ok(())
+        super::audit::begin_chain(self.db()?.conn(), &audit_key)
     }
 
     pub fn lock(&mut self) {
@@ -268,46 +261,6 @@ impl Vault {
         Ok((key_hierarchy, stored.clone()))
     }
 
-    /// Open a pre-v2 vault and rewrite its key material in the current scheme.
-    ///
-    /// The legacy layout stored the Argon2 output as `password_hash`, and that
-    /// output *was* the master key — so anyone who could read the database
-    /// could unwrap the DEK without knowing the password. Migration derives a
-    /// master key that is never persisted, re-wraps the existing DEK under it,
-    /// and drops the old row.
-    ///
-    /// The DEK itself is unchanged, so every stored credential stays readable;
-    /// only the layer protecting it is replaced. The rewrite runs in one
-    /// transaction, so an interrupted migration leaves the vault openable by
-    /// the legacy path rather than half-converted.
-    fn unlock_and_migrate_legacy(
-        password: &str,
-        db: &mut Database,
-    ) -> VaultResult<(KeyHierarchy, StoredKeyMaterial)> {
-        let legacy_hash = Self::load_legacy_password_hash(db.conn())?;
-        let legacy_master = verify_legacy_master_key(password.as_bytes(), &legacy_hash)
-            .map_err(|_| VaultError::InvalidPassword)?;
-
-        let wrapped_dek = Self::load_wrapped_dek(db.conn())?;
-        let mut key_hierarchy = Self::reconstruct_key_hierarchy(legacy_master, wrapped_dek)?;
-
-        let (new_master_key, new_material) = Self::derive_new_key_material(password)?;
-        let rewrapped_dek = key_hierarchy
-            .change_master_key(new_master_key)
-            .map_err(|e| VaultError::CryptoError(e.to_string()))?;
-
-        let tx = db.conn_mut().transaction()?;
-        Self::store_key_material(&tx, &new_material)?;
-        Self::store_wrapped_dek(&tx, &rewrapped_dek)?;
-        tx.execute(
-            "DELETE FROM metadata WHERE key = ?1",
-            [META_LEGACY_PASSWORD_HASH],
-        )?;
-        tx.commit()?;
-
-        Ok((key_hierarchy, new_material))
-    }
-
     fn create_key_hierarchy(master_key: MasterKey) -> VaultResult<KeyHierarchy> {
         KeyHierarchy::new(master_key).map_err(|e| VaultError::CryptoError(e.to_string()))
     }
@@ -347,15 +300,25 @@ impl Vault {
         Ok(())
     }
 
-    /// Read the current scheme's key material.
+    /// Read the vault's key material.
     ///
-    /// Returns `Ok(None)` when the vault predates the scheme, which routes
-    /// unlock through migration. A vault that declares `kdf_version` but is
-    /// missing any component is corrupt, and errors rather than silently
-    /// falling back.
-    fn load_key_material(conn: &Connection) -> VaultResult<Option<StoredKeyMaterial>> {
-        if Self::get_metadata_value(conn, META_KDF_VERSION).is_none() {
-            return Ok(None);
+    /// A vault not carrying the current `kdf_version` is rejected with
+    /// [`VaultError::UnsupportedFormat`] rather than being read on a guess.
+    /// Conversion from older layouts was removed once no such vault remained;
+    /// recovering one means checking out a build that still had it.
+    fn load_key_material(conn: &Connection) -> VaultResult<StoredKeyMaterial> {
+        match Self::get_metadata_value(conn, META_KDF_VERSION) {
+            Some(version) if version == KDF_VERSION => {}
+            Some(version) => {
+                return Err(VaultError::UnsupportedFormat(format!(
+                    "vault declares kdf_version {version}, this build reads {KDF_VERSION}"
+                )))
+            }
+            None => {
+                return Err(VaultError::UnsupportedFormat(format!(
+                    "vault predates kdf_version {KDF_VERSION} and can no longer be opened"
+                )))
+            }
         }
 
         let salt_hex = Self::require_metadata(conn, META_KDF_SALT)?;
@@ -367,15 +330,11 @@ impl Vault {
         let params: KdfParams = serde_json::from_str(&params_json)
             .map_err(|e| VaultError::CryptoError(format!("Invalid KDF params: {e}")))?;
 
-        Ok(Some(StoredKeyMaterial {
+        Ok(StoredKeyMaterial {
             salt,
             params,
             verifier,
-        }))
-    }
-
-    fn load_legacy_password_hash(conn: &Connection) -> VaultResult<String> {
-        Self::require_metadata(conn, META_LEGACY_PASSWORD_HASH)
+        })
     }
 
     fn store_wrapped_dek(conn: &Connection, wrapped_dek: &str) -> VaultResult<()> {
@@ -483,31 +442,6 @@ mod tests {
         vault
     }
 
-    /// Build a vault in the pre-v2 on-disk layout: an Argon2 PHC string under
-    /// `password_hash`, whose output doubles as the master key wrapping the
-    /// DEK. Used to prove migration opens real legacy data.
-    fn create_legacy_vault(config: &VaultConfig, password: &str) -> String {
-        use crate::crypto::kdf::verify_legacy_master_key;
-        use argon2::password_hash::{PasswordHasher, SaltString};
-        use argon2::{password_hash::rand_core::OsRng, Argon2};
-
-        let salt = SaltString::generate(&mut OsRng);
-        let phc = Argon2::default()
-            .hash_password(password.as_bytes(), &salt)
-            .unwrap()
-            .to_string();
-
-        // The legacy master key is the hash output itself.
-        let master_key = verify_legacy_master_key(password.as_bytes(), &phc).unwrap();
-        let hierarchy = KeyHierarchy::new(master_key).unwrap();
-
-        let db = Database::open(DatabaseConfig::with_path(&config.path)).unwrap();
-        Vault::store_metadata(db.conn(), META_LEGACY_PASSWORD_HASH, &phc).unwrap();
-        Vault::store_wrapped_dek(db.conn(), hierarchy.wrapped_dek()).unwrap();
-
-        hex::encode(hierarchy.dek().as_bytes())
-    }
-
     fn read_metadata(config: &VaultConfig, key: &str) -> Option<String> {
         let db = Database::open(DatabaseConfig::with_path(&config.path)).unwrap();
         Vault::get_metadata_value(db.conn(), key)
@@ -518,54 +452,33 @@ mod tests {
         let (_dir, config) = temp_vault();
         let _vault = create_initialized_vault(config.clone(), "test_password");
 
-        // The pre-v2 flaw: the verifier on disk must not unwrap the DEK.
+        // What is written to disk must not unwrap the DEK.
         let verifier_hex = read_metadata(&config, META_KDF_VERIFIER).unwrap();
         let wrapped_dek = read_metadata(&config, META_WRAPPED_DEK).unwrap();
 
         let forged = MasterKey::from_bytes(decode_fixed::<32>(&verifier_hex).unwrap());
         assert!(DataEncryptionKey::unwrap(&wrapped_dek, &forged).is_err());
-
-        // And the legacy row must not be written at all.
-        assert!(read_metadata(&config, META_LEGACY_PASSWORD_HASH).is_none());
     }
 
+    /// A vault without the current version marker must fail loudly rather
+    /// than being read on a guess or reported as corrupt.
     #[test]
-    fn test_legacy_vault_migrates_on_unlock() {
+    fn test_unversioned_vault_is_rejected() {
         let (_dir, config) = temp_vault();
-        let original_dek = create_legacy_vault(&config, "legacy_password");
+        let _vault = create_initialized_vault(config.clone(), "test_password");
 
-        assert!(read_metadata(&config, META_LEGACY_PASSWORD_HASH).is_some());
-        assert!(read_metadata(&config, META_KDF_VERSION).is_none());
+        // Strip the marker, as a pre-v2 vault would be.
+        let db = Database::open(DatabaseConfig::with_path(&config.path)).unwrap();
+        db.conn()
+            .execute("DELETE FROM metadata WHERE key = ?1", [META_KDF_VERSION])
+            .unwrap();
+        drop(db);
 
-        let mut vault = Vault::new(config.clone());
-        vault.unlock("legacy_password").unwrap();
-
-        // The DEK survives, so credentials encrypted under it stay readable.
-        assert_eq!(hex::encode(vault.dek().unwrap().as_bytes()), original_dek);
-
-        // The vault is now on the current scheme and the old row is gone.
-        assert_eq!(
-            read_metadata(&config, META_KDF_VERSION).as_deref(),
-            Some(KDF_VERSION)
-        );
-        assert!(read_metadata(&config, META_LEGACY_PASSWORD_HASH).is_none());
-
-        // Re-unlocking goes through the current path and still works.
-        vault.lock();
-        vault.unlock("legacy_password").unwrap();
-        assert_eq!(hex::encode(vault.dek().unwrap().as_bytes()), original_dek);
-    }
-
-    #[test]
-    fn test_legacy_vault_rejects_wrong_password() {
-        let (_dir, config) = temp_vault();
-        create_legacy_vault(&config, "legacy_password");
-
-        let mut vault = Vault::new(config.clone());
-        assert!(vault.unlock("wrong_password").is_err());
-
-        // A failed unlock must not migrate or destroy the legacy material.
-        assert!(read_metadata(&config, META_LEGACY_PASSWORD_HASH).is_some());
+        let mut vault = Vault::new(config);
+        assert!(matches!(
+            vault.unlock("test_password"),
+            Err(VaultError::UnsupportedFormat(_))
+        ));
     }
 
     #[test]

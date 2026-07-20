@@ -25,6 +25,11 @@ pub enum VaultError {
     #[error("Invalid password")]
     InvalidPassword,
 
+    /// The vault predates a format this build still understands. Carries what
+    /// was expected so the message can say which version is required.
+    #[error("Unsupported vault format: {0}")]
+    UnsupportedFormat(String),
+
     #[error("Database error: {0}")]
     DatabaseError(#[from] crate::db::DbError),
 

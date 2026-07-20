@@ -16,7 +16,7 @@ No nightly features are used.
 ```sh
 cargo build                 # debug
 cargo build --release       # optimised, LTO, stripped
-cargo test                  # 120 tests, all in-crate
+cargo test                  # 126 tests, all in-crate
 cargo clippy --all-targets  # must be silent
 cargo run -- /tmp/test.db   # run against a throwaway vault
 ```
@@ -110,10 +110,11 @@ carry extra requirements:
 4. **Compare secrets in constant time**, via `subtle::ConstantTimeEq`.
 5. **`Debug` must not print key bytes.** Follow the existing
    `finish_non_exhaustive()` pattern.
-6. **Changing derivation requires a version bump and a migration.**
-   `kdf_version` identifies the scheme; see
-   [storage.md](storage.md#format-versions). A vault that exists must
-   keep opening.
+6. **Changing derivation requires a version bump and a conversion path.**
+   `kdf_version` and `audit_version` identify the schemes; see
+   [storage.md](storage.md#format-versions). Ship the conversion, let
+   users migrate, then remove it — and make the post-removal build reject
+   old vaults with `UnsupportedFormat` rather than misreading them.
 
 Read [security.md](security.md) before changing anything in this area.
 

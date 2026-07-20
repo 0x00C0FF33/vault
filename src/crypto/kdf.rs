@@ -15,14 +15,9 @@
 //! unlocking nothing: recovering the master key from the database alone is not
 //! possible, and an attacker holding the file must still brute-force the
 //! password through Argon2.
-//!
-//! Vaults written before this scheme stored the Argon2 PHC string, whose hash
-//! output *was* the master key — reading the database was enough to unwrap the
-//! DEK. [`verify_legacy_master_key`] opens such a vault exactly once so
-//! `Vault::unlock` can migrate it.
 
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordVerifier},
+    password_hash::rand_core::OsRng,
     Algorithm, Argon2, Params, Version,
 };
 use hkdf::Hkdf;
@@ -166,42 +161,6 @@ pub fn verify_and_derive_master_key(
     Err(CryptoError::InvalidPassword)
 }
 
-/// Verify a password against a pre-v2 PHC hash and recover the master key it
-/// encodes.
-///
-/// # Security
-///
-/// The returned key is the Argon2 output stored verbatim in the database, so
-/// this trusts material an attacker could read for themselves. It exists only
-/// to open a legacy vault once during migration and must never be reachable
-/// from the normal unlock path.
-pub fn verify_legacy_master_key(password: &[u8], password_hash: &str) -> CryptoResult<MasterKey> {
-    let parsed_hash = PasswordHash::new(password_hash)
-        .map_err(|e| CryptoError::KeyDerivationFailed(e.to_string()))?;
-
-    Argon2::default()
-        .verify_password(password, &parsed_hash)
-        .map_err(|_| CryptoError::InvalidPassword)?;
-
-    let hash_output = parsed_hash
-        .hash
-        .ok_or_else(|| CryptoError::KeyDerivationFailed("No hash output".to_string()))?;
-
-    let hash_bytes = hash_output.as_bytes();
-    if hash_bytes.len() < KEY_LEN {
-        return Err(CryptoError::KeyDerivationFailed(
-            "Hash output too short".to_string(),
-        ));
-    }
-
-    let mut key_bytes = [0u8; KEY_LEN];
-    key_bytes.copy_from_slice(&hash_bytes[..KEY_LEN]);
-    let master_key = MasterKey::from_bytes(key_bytes);
-    key_bytes.zeroize();
-
-    Ok(master_key)
-}
-
 /// Run Argon2id then split the result into a master key and a verifier.
 fn derive_from_salt(
     password: &[u8],
@@ -336,22 +295,4 @@ mod tests {
         assert!(DataEncryptionKey::unwrap(&wrapped, &forged).is_err());
     }
 
-    #[test]
-    fn test_legacy_hash_still_verifies() {
-        // A hash produced by the pre-v2 scheme must remain openable so existing
-        // vaults can migrate.
-        use argon2::password_hash::{PasswordHasher, SaltString};
-
-        let salt = SaltString::generate(&mut OsRng);
-        let hash = Argon2::default()
-            .hash_password(b"legacy_password", &salt)
-            .unwrap()
-            .to_string();
-
-        assert!(verify_legacy_master_key(b"legacy_password", &hash).is_ok());
-        assert!(matches!(
-            verify_legacy_master_key(b"wrong_password", &hash),
-            Err(CryptoError::InvalidPassword)
-        ));
-    }
 }

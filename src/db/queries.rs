@@ -321,16 +321,6 @@ pub fn count_audit_logs(conn: &Connection) -> DbResult<usize> {
     Ok(usize::try_from(count).unwrap_or(0))
 }
 
-/// Replace an entry's HMAC. Only used when re-signing an existing log into the
-/// chained format.
-pub fn update_audit_hmac(conn: &Connection, id: i64, hmac: &str) -> DbResult<()> {
-    conn.execute(
-        "UPDATE audit_log SET hmac = ?2 WHERE id = ?1",
-        params![id, hmac],
-    )?;
-    Ok(())
-}
-
 // ============================================================================
 // Metadata
 // ============================================================================

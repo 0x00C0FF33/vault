@@ -46,6 +46,8 @@ kdf_params      = {"memory_cost":19456,"time_cost":2,"parallelism":1,"output_len
 kdf_salt        = a6c292521da74c473c679fa843c0d6cb
 kdf_verifier    = 2ae834798e481ecda50e87ac390d08593db8718483084b2bdd420816d26e2695
 kdf_version     = 2
+audit_head      = 9f1c…
+audit_version   = 2
 schema_version  = 3
 wrapped_dek     = 6ca72a6c5c4f260c8b01c24b67e13756…
 ```
@@ -131,38 +133,26 @@ A vault whose `schema_version` is already current is left alone.
 ### `kdf_version` — key material
 
 Checked at unlock (`vault/manager.rs`). Version 2 is the scheme in
-[security.md](security.md#key-hierarchy). Version 1 is implicit: those
-vaults carry a `password_hash` row and no `kdf_version`.
-
-A version 1 vault is converted on its next successful unlock:
-
-1. The legacy row opens the vault once.
-2. The DEK is unwrapped.
-3. Fresh version 2 key material is derived from the same password.
-4. The DEK is re-wrapped under the new master key.
-5. New rows are written and `password_hash` is deleted — in one
-   transaction.
-
-The DEK is unchanged, so every stored credential remains readable; only
-the layer protecting it is replaced. Because the rewrite is a single
-transaction, an interrupted conversion leaves the vault openable by the
-version 1 path and it is retried on the next unlock.
-
-An incorrect password converts nothing.
+[security.md](security.md#key-hierarchy).
 
 ### `audit_version` — audit signing
 
-Checked at unlock, after the key hierarchy is available. Version 2 is the
-hash chain described in
-[security.md](security.md#audit-trail). Version 1 is implicit: entries
-signed individually, without the timestamp or a predecessor.
+Checked at unlock (`vault/audit.rs`). Version 2 is the hash chain
+described in [security.md](security.md#audit-trail).
 
-A version 1 log is converted on the next unlock. Each entry is checked
-under the version 1 rules and, if it passes, re-signed into the chain. An
-entry that fails keeps its stored HMAC, so it continues to report as
-tampered instead of being laundered into a valid chain; later entries
-chain onto that stored value and verify normally, keeping the damage
-attributed to the entry it belongs to.
+### Vaults this build cannot open
+
+Both checks are strict: a vault whose `kdf_version` or `audit_version` is
+missing or unrecognised is rejected with `VaultError::UnsupportedFormat`
+rather than being read on a guess. The error names the version found and
+the version expected.
+
+Conversion code for earlier layouts was removed once no such vault
+remained. It is still in the git history, so recovering an old vault
+means building a revision that had it, opening the vault once to convert
+it, and returning to the current build. Version markers are kept
+precisely so that a future change has a defined place to branch, and so
+an unreadable vault reports *why* instead of appearing corrupt.
 
 ## Export formats
 

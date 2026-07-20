@@ -30,7 +30,7 @@ use subtle::ConstantTimeEq;
 use crate::crypto::DerivedKey;
 use crate::db::{self, AuditAction, AuditLog};
 
-use super::VaultResult;
+use super::{VaultError, VaultResult};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -47,8 +47,8 @@ const META_AUDIT_HEAD: &str = "audit_head";
 /// Metadata key recording which signing scheme the log uses.
 const META_AUDIT_VERSION: &str = "audit_version";
 
-/// Current signing scheme. Version 1 is implicit: unchained, and without the
-/// timestamp under the signature.
+/// Current signing scheme. A log not carrying this version is not readable by
+/// this build.
 const AUDIT_VERSION: &str = "2";
 
 /// Append an entry, chaining it onto the current head.
@@ -132,77 +132,38 @@ pub fn verify_chain_head(
     audit_key: &DerivedKey,
 ) -> VaultResult<bool> {
     let Some(stored) = db::get_metadata(conn, META_AUDIT_HEAD) else {
-        // No head recorded: the log predates chaining and cannot be checked
-        // for truncation until it has been migrated.
+        // No head recorded means the chain was never started, which
+        // `require_current_version` rejects at unlock.
         return Ok(false);
     };
 
     Ok(constant_time_eq(&expected_head(conn, audit_key)?, &stored))
 }
 
-/// Convert an unchained log into the chained format, re-signing entries that
-/// still verify under the previous scheme.
+/// Start the chain on a freshly created vault.
 ///
-/// An entry that fails the old check keeps its stored HMAC, so it continues to
-/// report as tampered rather than being laundered into a valid chain. Later
-/// entries chain onto that stored value, so they verify normally and the
-/// damage stays attributed to the entry it belongs to.
-///
-/// Returns `(re-signed, failed)` counts.
-pub fn migrate_to_chained(
-    conn: &rusqlite::Connection,
-    audit_key: &DerivedKey,
-) -> VaultResult<(usize, usize)> {
-    let logs = db::get_all_audit_logs_ascending(conn)?;
-
-    let mut previous = GENESIS.to_string();
-    let mut resigned = 0;
-    let mut failed = 0;
-
-    for mut log in logs {
-        if verify_legacy_log(audit_key, &log) {
-            let hmac = compute_hmac(audit_key.as_bytes(), &entry_message(&previous, &log));
-            db::update_audit_hmac(conn, log.id, &hmac)?;
-            log.hmac = hmac;
-            resigned += 1;
-        } else {
-            failed += 1;
-        }
-        previous = log.hmac;
-    }
-
+/// Records the scheme version and signs the head over an empty log, so the
+/// first append and the first verification both have something to chain onto.
+pub fn begin_chain(conn: &rusqlite::Connection, audit_key: &DerivedKey) -> VaultResult<()> {
     sign_head(conn, audit_key)?;
     db::set_metadata(conn, META_AUDIT_VERSION, AUDIT_VERSION)?;
-
-    Ok((resigned, failed))
+    Ok(())
 }
 
-/// Bring the log up to the current signing scheme if it is not already.
+/// Reject a log written under a scheme this build no longer reads.
 ///
-/// Safe to call on every unlock; it does nothing once the log is chained.
-pub fn ensure_chained(
-    conn: &rusqlite::Connection,
-    audit_key: &DerivedKey,
-) -> VaultResult<(usize, usize)> {
-    if db::get_metadata(conn, META_AUDIT_VERSION).as_deref() == Some(AUDIT_VERSION) {
-        return Ok((0, 0));
+/// Conversion from the unchained format was removed once no such log
+/// remained; recovering one means checking out a build that still had it.
+pub fn require_current_version(conn: &rusqlite::Connection) -> VaultResult<()> {
+    match db::get_metadata(conn, META_AUDIT_VERSION) {
+        Some(version) if version == AUDIT_VERSION => Ok(()),
+        Some(version) => Err(VaultError::UnsupportedFormat(format!(
+            "audit log declares audit_version {version}, this build reads {AUDIT_VERSION}"
+        ))),
+        None => Err(VaultError::UnsupportedFormat(format!(
+            "audit log predates audit_version {AUDIT_VERSION} and can no longer be verified"
+        ))),
     }
-    migrate_to_chained(conn, audit_key)
-}
-
-/// Verify an entry under the pre-chain scheme: no predecessor, no timestamp,
-/// colon-separated. Used only to decide whether an entry may be re-signed.
-fn verify_legacy_log(audit_key: &DerivedKey, log: &AuditLog) -> bool {
-    let message = format!(
-        "{}:{}:{}:{}:{}",
-        log.action.as_str(),
-        log.credential_id.as_deref().unwrap_or(""),
-        log.credential_name.as_deref().unwrap_or(""),
-        log.username.as_deref().unwrap_or(""),
-        log.details.as_deref().unwrap_or(""),
-    );
-
-    constant_time_eq(&compute_hmac(audit_key.as_bytes(), &message), &log.hmac)
 }
 
 fn sign_head(conn: &rusqlite::Connection, audit_key: &DerivedKey) -> VaultResult<()> {
@@ -407,57 +368,20 @@ mod tests {
         Ok(())
     }
 
+    /// A log without the current version marker is refused rather than read
+    /// on a guess.
     #[test]
-    fn test_legacy_log_migrates_to_chain() -> CryptoResult<()> {
+    fn test_unversioned_log_is_rejected() -> CryptoResult<()> {
         let db = Database::open_in_memory().unwrap();
+
+        assert!(matches!(
+            require_current_version(db.conn()),
+            Err(VaultError::UnsupportedFormat(_))
+        ));
+
         let key = test_audit_key()?;
-
-        // Write entries in the pre-chain format.
-        for i in 0..3 {
-            let message = format!("read:cred-{i}:Entry::");
-            let log = AuditLog::new(
-                AuditAction::Read,
-                Some(format!("cred-{i}")),
-                Some("Entry".to_string()),
-                None,
-                None,
-                compute_hmac(key.as_bytes(), &message),
-            );
-            db::create_audit_log(db.conn(), &log).unwrap();
-        }
-
-        let (resigned, failed) = ensure_chained(db.conn(), &key).unwrap();
-        assert_eq!((resigned, failed), (3, 0));
-
-        assert_eq!(validity(&db, &key), vec![true; 3]);
-        assert!(verify_chain_head(db.conn(), &key).unwrap());
-
-        // Running again is a no-op.
-        assert_eq!(ensure_chained(db.conn(), &key).unwrap(), (0, 0));
-
-        Ok(())
-    }
-
-    /// A legacy entry that was already tampered with must not be re-signed
-    /// into a valid chain.
-    #[test]
-    fn test_migration_does_not_launder_tampered_entry() -> CryptoResult<()> {
-        let db = Database::open_in_memory().unwrap();
-        let key = test_audit_key()?;
-
-        let log = AuditLog::new(
-            AuditAction::Read,
-            Some("cred-0".to_string()),
-            Some("Entry".to_string()),
-            None,
-            None,
-            "deadbeef".to_string(), // never a valid signature
-        );
-        db::create_audit_log(db.conn(), &log).unwrap();
-
-        let (resigned, failed) = ensure_chained(db.conn(), &key).unwrap();
-        assert_eq!((resigned, failed), (0, 1));
-        assert_eq!(validity(&db, &key), vec![false]);
+        begin_chain(db.conn(), &key).unwrap();
+        assert!(require_current_version(db.conn()).is_ok());
 
         Ok(())
     }
