@@ -659,3 +659,129 @@ impl Widget for CredentialFormWidget<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edit_params() -> EditFormParams {
+        EditFormParams {
+            id: "cred-1".to_string(),
+            name: "GitHub".to_string(),
+            cred_type: CredentialType::Password,
+            username: Some("octocat".to_string()),
+            secret: "hunter2".to_string(),
+            url: Some("https://github.com".to_string()),
+            tags: vec!["dev".to_string(), "vcs".to_string()],
+            totp_secret: Some("JBSWY3DPEHPK3PXP".to_string()),
+            notes: Some("recovery codes in safe".to_string()),
+            previous_view: View::List,
+        }
+    }
+
+
+    /// Guards the failure mode that commit 3597b38 hit by hand: inserting a
+    /// field shifts every later position, and a missed site silently routes
+    /// one field's value into another.
+    #[test]
+    fn every_edit_param_reaches_its_own_accessor() {
+        let form = CredentialForm::for_edit(edit_params());
+
+        assert_eq!(form.get_name(), "GitHub");
+        assert_eq!(form.get_username(), Some("octocat".to_string()));
+        assert_eq!(form.get_secret(), "hunter2");
+        assert_eq!(form.get_url(), Some("https://github.com".to_string()));
+        assert_eq!(form.get_tags(), vec!["dev".to_string(), "vcs".to_string()]);
+        assert_eq!(form.get_totp_secret(), Some("JBSWY3DPEHPK3PXP".to_string()));
+        assert_eq!(form.get_notes(), Some("recovery codes in safe".to_string()));
+    }
+
+    #[test]
+    fn absent_optional_params_read_back_as_none() {
+        let form = CredentialForm::for_edit(EditFormParams {
+            username: None,
+            url: None,
+            totp_secret: None,
+            notes: None,
+            ..edit_params()
+        });
+
+        assert_eq!(form.get_username(), None);
+        assert_eq!(form.get_url(), None);
+        assert_eq!(form.get_totp_secret(), None);
+        assert_eq!(form.get_notes(), None);
+    }
+
+    #[test]
+    fn whitespace_only_optional_field_is_none() {
+        let mut form = CredentialForm::new();
+        form.fields[2].value = "   ".to_string();
+        assert_eq!(form.get_username(), None);
+    }
+
+    #[test]
+    fn tags_split_on_whitespace_dropping_empties() {
+        let mut form = CredentialForm::new();
+        form.fields[5].value = "dev  vcs   ".to_string();
+        assert_eq!(form.get_tags(), vec!["dev".to_string(), "vcs".to_string()]);
+    }
+
+    #[test]
+    fn editing_a_note_does_not_require_a_secret() {
+        let form = CredentialForm::for_edit(EditFormParams {
+            cred_type: CredentialType::Note,
+            ..edit_params()
+        });
+        assert!(!form.fields[3].required);
+    }
+
+    #[test]
+    fn cycling_onto_note_clears_the_secret_requirement() {
+        let mut form = CredentialForm::new();
+        form.active_field = 1;
+        assert!(form.fields[3].required);
+
+        // Password -> ApiKey -> SshKey -> Certificate -> Note
+        for _ in 0..4 {
+            form.cycle_type(true);
+        }
+
+        assert_eq!(form.credential_type, CredentialType::Note);
+        assert!(!form.fields[3].required);
+        assert_eq!(form.fields[1].value, "Note");
+    }
+
+    #[test]
+    fn cycling_is_reversible() {
+        let mut form = CredentialForm::new();
+        form.active_field = 1;
+        form.cycle_type(true);
+        form.cycle_type(false);
+        assert_eq!(form.credential_type, CredentialType::Password);
+    }
+
+    #[test]
+    fn cycling_off_a_select_field_is_ignored() {
+        let mut form = CredentialForm::new();
+        form.active_field = 0;
+        form.cycle_type(true);
+        assert_eq!(form.credential_type, CredentialType::Password);
+    }
+
+    #[test]
+    fn validate_names_the_first_empty_required_field() {
+        let form = CredentialForm::new();
+        assert_eq!(form.validate(), Err("Name is required".to_string()));
+    }
+
+    #[test]
+    fn validate_accepts_a_filled_form() {
+        assert!(CredentialForm::for_edit(edit_params()).validate().is_ok());
+    }
+
+    #[test]
+    fn a_new_form_is_not_an_edit() {
+        assert!(!CredentialForm::new().is_editing());
+        assert!(CredentialForm::for_edit(edit_params()).is_editing());
+    }
+}
