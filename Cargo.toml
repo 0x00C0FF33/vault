@@ -2,6 +2,8 @@
 name = "vault"
 version = "0.3.0"
 edition = "2024"
+# Duration::from_mins (app/config.rs) stabilised in 1.91.
+rust-version = "1.91"
 authors = ["Kimlong"]
 description = "A local-first encrypted credential manager with vim-style TUI"
 license = "GPL-3.0-only"
@@ -53,6 +55,17 @@ windows-sys = { version = "0.59", features = ["Win32_System_Memory"] }
 
 [dev-dependencies]
 tempfile = "3.12"
+
+[lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+
+# Passing 1-byte Copy enums by value saves nothing meaningful and churns
+# public signatures.
+trivially_copy_pass_by_ref = "allow"
+# Crypto and entropy code leans on short conventional names (k, n, iv).
+many_single_char_names = "allow"
+similar_names = "allow"
+struct_field_names = "allow"
 
 [profile.release]
 opt-level = 3
