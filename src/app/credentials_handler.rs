@@ -263,7 +263,7 @@ impl App {
 
         let code = match totp::generate_totp(&totp_secret) {
             Ok(c) => c,
-            Err(e) => { self.set_message(&format!("TOTP generation failed: {}", e), MessageType::Error); return Ok(()); }
+            Err(e) => { self.set_message(&format!("TOTP generation failed: {e}"), MessageType::Error); return Ok(()); }
         };
         
         let remaining = totp::time_remaining(&totp_secret);
@@ -271,7 +271,7 @@ impl App {
 
         super::clipboard::copy_with_timeout(&code, self.config.clipboard_timeout);
         self.log_audit(AuditAction::Copy, Some(&id), Some(&name), username.as_deref(), Some("TOTP"))?;
-        self.set_message(&format!("TOTP copied: {} ({}s remaining)", code, remaining), MessageType::Success);
+        self.set_message(&format!("TOTP copied: {code} ({remaining}s remaining)"), MessageType::Success);
         Ok(())
     }
 
@@ -290,7 +290,7 @@ impl App {
 
         let uri = match totp_secret.to_uri() {
             Ok(u) => u,
-            Err(e) => { self.set_message(&format!("Failed to generate URI: {}", e), MessageType::Error); return Ok(()); }
+            Err(e) => { self.set_message(&format!("Failed to generate URI: {e}"), MessageType::Error); return Ok(()); }
         };
 
         let (id, name, username) = (cred.id.clone(), cred.name.clone(), cred.username.clone());
@@ -311,14 +311,13 @@ impl App {
         Ok(())
     }
 
-    pub fn export(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn export(&mut self) {
         if !self.vault.is_unlocked() {
             self.set_message("Vault must be unlocked", MessageType::Error);
-            return Ok(());
+            return;
         }
         self.export_dialog = Some(ExportDialog::new());
         self.mode_state.enter_export_mode();
-        Ok(())
     }
 
     pub fn execute_export(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -332,7 +331,7 @@ impl App {
         let export_creds = self.build_export_credentials()?;
         let data = ExportData::new(export_creds);
 
-        self.write_export_file(&data, dialog)?;
+        Self::write_export_file(&data, dialog)?;
 
         let path = dialog.path.clone();
         self.finalize_export(path.content())?;
@@ -352,7 +351,7 @@ impl App {
         
         for cred in &self.credentials {
             let secret = decrypt_string(dek.as_ref(), &cred.encrypted_secret)?;
-            let notes = self.decrypt_notes_if_present(dek.as_ref(), cred)?;
+            let notes = Self::decrypt_notes_if_present(dek.as_ref(), cred)?;
             export_creds.push(credential_to_export(cred, secret, notes));
         }
         
@@ -360,7 +359,6 @@ impl App {
     }
     
     fn decrypt_notes_if_present(
-        &self,
         dek: &[u8],
         cred: &Credential,
     ) -> Result<Option<String>, Box<dyn std::error::Error>> {
@@ -371,12 +369,11 @@ impl App {
     }
     
     fn write_export_file(
-        &self,
         data: &ExportData,
         dialog: &ExportDialog,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let passphrase_opt = dialog.get_passphrase();
-        let passphrase = passphrase_opt.as_ref().map(|s| s.expose_secret());
+        let passphrase = passphrase_opt.as_ref().map(secrecy::ExposeSecret::expose_secret);
         export_to_file(data, dialog.format, dialog.encryption, passphrase, Path::new(dialog.path.content()))?;
         Ok(())
     }
@@ -384,9 +381,9 @@ impl App {
     fn finalize_export(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let count = self.credentials.len();
         let detail = if self.has_active_filters() {
-            format!("Exported {} credential(s) (filtered) to {}", count, path)
+            format!("Exported {count} credential(s) (filtered) to {path}")
         } else {
-            format!("Exported {} credential(s) to {}", count, path)
+            format!("Exported {count} credential(s) to {path}")
         };
         self.log_audit(AuditAction::Export, None, None, None, Some(&detail))?;
         self.set_message(&detail, MessageType::Success);
@@ -403,7 +400,7 @@ impl App {
 
 fn parse_totp_secret(input: &str, name: &str) -> Result<TotpSecret, String> {
     TotpSecret::from_user_input(input, name, "Vault")
-        .map_err(|e| format!("TOTP error: {}", e))
+        .map_err(|e| format!("TOTP error: {e}"))
 }
 
 fn apply_search_filter(results: &mut Vec<Credential>, query: &str) {
@@ -458,13 +455,12 @@ pub fn compute_totp(cred: &DecryptedCredential) -> (Option<String>, Option<u64>)
         return (None, None);
     };
 
-    let totp_secret = match TotpSecret::from_user_input(
+    let Ok(totp_secret) = TotpSecret::from_user_input(
         totp_input.expose_secret(),
         &cred.name,
         "Vault"
-    ) {
-        Ok(s) => s,
-        Err(_) => return (None, None),
+    ) else {
+        return (None, None);
     };
 
     match totp::generate_totp(&totp_secret) {

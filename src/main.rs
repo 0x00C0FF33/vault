@@ -218,7 +218,7 @@ fn finalize_init(state: &mut InitState, app: &mut App) -> Option<String> {
 
     if let Err(e) = app.initialize(state.password.content()) {
         state.confirm.clear();
-        return Some(format!("Failed to initialize: {}", e));
+        return Some(format!("Failed to initialize: {e}"));
     }
 
     state.confirming = false;
@@ -368,7 +368,7 @@ fn process_change_step(state: &mut PasswordChangeState, vault: &mut vault::Vault
 fn process_change_verify(state: &mut PasswordChangeState, vault: &mut vault::Vault) -> ChangeResult {
     if let Err(e) = vault.verify_password(state.current.content()) {
         state.current.clear();
-        state.error = Some(change_verify_error_msg(e));
+        state.error = Some(change_verify_error_msg(&e));
         return ChangeResult::Continue;
     }
     state.step = 1;
@@ -376,7 +376,7 @@ fn process_change_verify(state: &mut PasswordChangeState, vault: &mut vault::Vau
     ChangeResult::Continue
 }
 
-fn change_verify_error_msg(e: vault::VaultError) -> String {
+fn change_verify_error_msg(e: &vault::VaultError) -> String {
     match e {
         vault::VaultError::InvalidPassword => "Current password is incorrect",
         vault::VaultError::Locked => "Vault is locked",
@@ -410,7 +410,7 @@ fn process_change_confirm(state: &mut PasswordChangeState, vault: &mut vault::Va
     }
 
     if let Err(e) = vault.change_password(state.current.content(), state.new_pass.content()) {
-        state.error = Some(change_confirm_error_msg(e));
+        state.error = Some(change_confirm_error_msg(&e));
         change_reset(state);
         return ChangeResult::Continue;
     }
@@ -418,7 +418,7 @@ fn process_change_confirm(state: &mut PasswordChangeState, vault: &mut vault::Va
     ChangeResult::Success
 }
 
-fn change_confirm_error_msg(e: vault::VaultError) -> String {
+fn change_confirm_error_msg(e: &vault::VaultError) -> String {
     match e {
         vault::VaultError::InvalidPassword => "Current password is incorrect",
         _ => "Failed to change password",
@@ -451,22 +451,21 @@ fn process_app_input(terminal: &mut Term, app: &mut App) -> Result<bool, Box<dyn
 
     if quit { return Ok(true); }
 
-    handle_password_change_request(terminal, app)?;
+    handle_password_change_request(terminal, app);
     Ok(false)
 }
 
-fn handle_password_change_request(terminal: &mut Term, app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_password_change_request(terminal: &mut Term, app: &mut App) {
     if !app.wants_password_change {
-        return Ok(());
+        return;
     }
 
     app.wants_password_change = false;
     match run_password_change(terminal, app) {
         Ok(true) => app.set_message("Password changed successfully", ui::MessageType::Success),
         Ok(false) => {}
-        Err(e) => app.set_message(&format!("Error: {}", e), ui::MessageType::Error),
+        Err(e) => app.set_message(&format!("Error: {e}"), ui::MessageType::Error),
     }
-    Ok(())
 }
 
 fn check_auto_lock(terminal: &mut Term, app: &mut App) -> Result<(), Box<dyn std::error::Error>> {

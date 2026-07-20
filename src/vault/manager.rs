@@ -85,8 +85,8 @@ impl Vault {
         }
 
         self.create_parent_directory()?;
-        let (master_key, password_hash) = self.derive_new_master_key(password)?;
-        let key_hierarchy = self.create_key_hierarchy(master_key)?;
+        let (master_key, password_hash) = Self::derive_new_master_key(password)?;
+        let key_hierarchy = Self::create_key_hierarchy(master_key)?;
         let db = self.open_database()?;
 
         Self::store_password_hash(db.conn(), &password_hash)?;
@@ -153,7 +153,7 @@ impl Vault {
 
     pub fn change_password(&mut self, old_password: &str, new_password: &str) -> VaultResult<()> {
         self.verify_current_password(old_password)?;
-        let (new_master_key, new_hash) = self.derive_new_master_key(new_password)?;
+        let (new_master_key, new_hash) = Self::derive_new_master_key(new_password)?;
         let new_wrapped_dek = self.rewrap_dek(new_master_key)?;
 
         let db = self.db.as_ref().ok_or(VaultError::Locked)?;
@@ -188,7 +188,7 @@ impl Vault {
 
         Self::clear_failed_attempt_metadata(db.conn())?;
 
-        Self::parse_failed_attempts(count, timestamp)
+        Ok(Self::parse_failed_attempts(count, timestamp))
     }
 }
 
@@ -200,13 +200,13 @@ impl Vault {
         std::fs::create_dir_all(parent).map_err(|e| VaultError::IoError(e.to_string()))
     }
 
-    fn derive_new_master_key(&self, password: &str) -> VaultResult<(MasterKey, String)> {
+    fn derive_new_master_key(password: &str) -> VaultResult<(MasterKey, String)> {
         let params = KdfParams::default();
         derive_master_key(password.as_bytes(), &params)
             .map_err(|e| VaultError::CryptoError(e.to_string()))
     }
 
-    fn create_key_hierarchy(&self, master_key: MasterKey) -> VaultResult<KeyHierarchy> {
+    fn create_key_hierarchy(master_key: MasterKey) -> VaultResult<KeyHierarchy> {
         KeyHierarchy::new(master_key).map_err(|e| VaultError::CryptoError(e.to_string()))
     }
 
@@ -277,10 +277,10 @@ impl Vault {
 
     fn increment_failed_unlock_counter(conn: &rusqlite::Connection) -> VaultResult<()> {
         conn.execute(
-            r#"
+            r"
             INSERT INTO metadata (key, value) VALUES ('pending_failed_unlocks', '1')
             ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)
-            "#,
+            ",
             [],
         )?;
         Ok(())
@@ -289,10 +289,10 @@ impl Vault {
     fn update_failed_unlock_timestamp(conn: &rusqlite::Connection) -> VaultResult<()> {
         let now = chrono::Local::now().format("%d-%b-%Y %H:%M").to_string();
         conn.execute(
-            r#"
+            r"
             INSERT INTO metadata (key, value) VALUES ('last_failed_unlock_at', ?1)
             ON CONFLICT(key) DO UPDATE SET value = ?1
-            "#,
+            ",
             [&now],
         )?;
         Ok(())
@@ -318,20 +318,16 @@ impl Vault {
     fn parse_failed_attempts(
         count: Option<String>,
         timestamp: Option<String>,
-    ) -> VaultResult<Option<(u32, String)>> {
-        let Some(c) = count else {
-            return Ok(None);
-        };
-        let Some(t) = timestamp else {
-            return Ok(None);
-        };
+    ) -> Option<(u32, String)> {
+        let c = count?;
+        let t = timestamp?;
 
         let n: u32 = c.parse().unwrap_or(0);
         if n == 0 {
-            return Ok(None);
+            return None;
         }
 
-        Ok(Some((n, t)))
+        Some((n, t))
     }
 }
 
@@ -386,7 +382,7 @@ mod tests {
         let (_dir, config) = temp_vault();
         let mut vault = create_initialized_vault(config, "old_password");
 
-        let dek_before = vault.dek().unwrap().as_bytes().clone();
+        let dek_before = *vault.dek().unwrap().as_bytes();
 
         vault.change_password("old_password", "new_password").unwrap();
 

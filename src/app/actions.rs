@@ -10,10 +10,10 @@ use super::App;
 impl App {
     pub fn execute_action(&mut self, action: Action) -> Result<bool, Box<dyn std::error::Error>> {
         match action {
-            Action::MoveUp => self.move_list(|ls| ls.move_up())?,
-            Action::MoveDown => self.move_list(|ls| ls.move_down())?,
-            Action::MoveToTop => self.move_list(|ls| ls.move_to_top())?,
-            Action::MoveToBottom => self.move_list(|ls| ls.move_to_bottom())?,
+            Action::MoveUp => self.move_list(super::super::ui::components::list::ListViewState::move_up)?,
+            Action::MoveDown => self.move_list(super::super::ui::components::list::ListViewState::move_down)?,
+            Action::MoveToTop => self.move_list(super::super::ui::components::list::ListViewState::move_to_top)?,
+            Action::MoveToBottom => self.move_list(super::super::ui::components::list::ListViewState::move_to_bottom)?,
             Action::PageUp => self.page_move(|ls, h| ls.page_up(h.saturating_sub(1)))?,
             Action::PageDown => self.page_move(|ls, h| ls.page_down(h.saturating_sub(1)))?,
             Action::HalfPageUp => self.page_move(|ls, h| ls.page_up(h / 2))?,
@@ -49,13 +49,13 @@ impl App {
             Action::Cancel => self.cancel_pending(),
 
             Action::Clear => self.set_message("", MessageType::Info),
-            Action::Quit => return self.quit(),
+            Action::Quit => return Ok(self.quit()),
             Action::ForceQuit => return Ok(true),
             Action::Lock => self.lock(),
-            Action::Export => self.export()?,
+            Action::Export => self.export(),
             Action::Refresh => self.refresh_data()?,
             Action::VerifyAudit => self.verify_and_report_audit(),
-            Action::Invalid(cmd) => self.set_message(&format!("Unknown command: {}", cmd), MessageType::Error),
+            Action::Invalid(cmd) => self.set_message(&format!("Unknown command: {cmd}"), MessageType::Error),
 
             _ => {}
         }
@@ -180,16 +180,16 @@ impl App {
         Ok(())
     }
 
-    fn quit(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
+    fn quit(&mut self) -> bool {
         self.should_quit = true;
-        Ok(true)
+        true
     }
 
     fn verify_and_report_audit(&mut self) {
         let (msg, msg_type) = match self.verify_audit_logs() {
-            Ok((0, total)) => (format!("Audit OK: {} logs verified", total), MessageType::Success),
-            Ok((tampered, total)) => (format!("Warning: {} of {} logs may be tampered!", tampered, total), MessageType::Error),
-            Err(e) => (format!("Audit check failed: {}", e), MessageType::Error),
+            Ok((0, total)) => (format!("Audit OK: {total} logs verified"), MessageType::Success),
+            Ok((tampered, total)) => (format!("Warning: {tampered} of {total} logs may be tampered!"), MessageType::Error),
+            Err(e) => (format!("Audit check failed: {e}"), MessageType::Error),
         };
         self.set_message(&msg, msg_type);
     }
