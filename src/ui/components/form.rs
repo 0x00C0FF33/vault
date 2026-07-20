@@ -99,17 +99,58 @@ impl Default for CredentialForm {
     }
 }
 
+/// A field's position in `CredentialForm::fields`.
+///
+/// `ALL` is the only place the on-screen order lives: `default_fields` builds
+/// from it and every accessor indexes through it. Adding a field means adding
+/// a variant, not renumbering call sites — `field_order_matches_declaration`
+/// fails if the two ever drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Field {
+    Name,
+    Type,
+    Username,
+    Secret,
+    Url,
+    Tags,
+    TotpSecret,
+    Notes,
+}
+
+impl Field {
+    const ALL: [Self; 8] = [
+        Self::Name,
+        Self::Type,
+        Self::Username,
+        Self::Secret,
+        Self::Url,
+        Self::Tags,
+        Self::TotpSecret,
+        Self::Notes,
+    ];
+
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    fn blank(self) -> FormField {
+        match self {
+            Self::Name => FormField::text("Name", true),
+            Self::Type => {
+                FormField::select("Type").with_value(CredentialType::Password.display_name())
+            }
+            Self::Username => FormField::text("Username", false),
+            Self::Secret => FormField::secret("Password/Secret", true),
+            Self::Url => FormField::text("URL", false),
+            Self::Tags => FormField::text("Tags (multiple)", false),
+            Self::TotpSecret => FormField::secret("TOTP Secret", false),
+            Self::Notes => FormField::multiline("Notes"),
+        }
+    }
+}
+
 fn default_fields() -> Vec<FormField> {
-    vec![
-        FormField::text("Name", true),
-        FormField::select("Type").with_value(CredentialType::Password.display_name()),
-        FormField::text("Username", false),
-        FormField::secret("Password/Secret", true),
-        FormField::text("URL", false),
-        FormField::text("Tags (multiple)", false),
-        FormField::secret("TOTP Secret", false),
-        FormField::multiline("Notes"),
-    ]
+    Field::ALL.iter().map(|field| field.blank()).collect()
 }
 
 fn is_secret_required(cred_type: CredentialType) -> bool {
@@ -183,17 +224,31 @@ impl CredentialForm {
         form.credential_type = params.cred_type;
         form.previous_view = params.previous_view;
 
-        form.fields[0].value = params.name;
-        form.fields[1].value = params.cred_type.display_name().to_string();
-        form.fields[2].value = params.username.unwrap_or_default();
-        form.fields[3].value = params.secret;
-        form.fields[3].required = is_secret_required(params.cred_type);
-        form.fields[4].value = params.url.unwrap_or_default();
-        form.fields[5].value = params.tags.join(" ");
-        form.fields[6].value = params.totp_secret.unwrap_or_default();
-        form.fields[7].value = params.notes.unwrap_or_default();
+        form.set(Field::Name, params.name);
+        form.set(Field::Username, params.username.unwrap_or_default());
+        form.set(Field::Secret, params.secret);
+        form.set(Field::Url, params.url.unwrap_or_default());
+        form.set(Field::Tags, params.tags.join(" "));
+        form.set(Field::TotpSecret, params.totp_secret.unwrap_or_default());
+        form.set(Field::Notes, params.notes.unwrap_or_default());
+        form.apply_type_rules();
 
         form
+    }
+
+    fn get(&self, field: Field) -> &str {
+        &self.fields[field.index()].value
+    }
+
+    fn set(&mut self, field: Field, value: String) {
+        self.fields[field.index()].value = value;
+    }
+
+    /// The credential type drives both the type field's label and whether a
+    /// secret is mandatory; keeping them together stops the two from drifting.
+    fn apply_type_rules(&mut self) {
+        self.set(Field::Type, self.credential_type.display_name().to_string());
+        self.fields[Field::Secret.index()].required = is_secret_required(self.credential_type);
     }
 
     pub fn is_editing(&self) -> bool {
@@ -284,8 +339,7 @@ impl CredentialForm {
         } else {
             cycle_type_backward(self.credential_type)
         };
-        self.fields[1].value = self.credential_type.display_name().to_string();
-        self.fields[3].required = is_secret_required(self.credential_type);
+        self.apply_type_rules();
     }
 
     pub fn toggle_password_visibility(&mut self) {
@@ -301,24 +355,23 @@ impl CredentialForm {
     }
 
     pub fn get_name(&self) -> &str {
-        &self.fields[0].value
+        self.get(Field::Name)
     }
 
     pub fn get_username(&self) -> Option<String> {
-        trim_to_option(&self.fields[2].value)
+        trim_to_option(self.get(Field::Username))
     }
 
     pub fn get_secret(&self) -> &str {
-        &self.fields[3].value
+        self.get(Field::Secret)
     }
 
     pub fn get_url(&self) -> Option<String> {
-        trim_to_option(&self.fields[4].value)
+        trim_to_option(self.get(Field::Url))
     }
 
     pub fn get_tags(&self) -> Vec<String> {
-        self.fields[5]
-            .value
+        self.get(Field::Tags)
             .split(' ')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
@@ -326,11 +379,11 @@ impl CredentialForm {
     }
 
     pub fn get_totp_secret(&self) -> Option<String> {
-        trim_to_option(&self.fields[6].value)
+        trim_to_option(self.get(Field::TotpSecret))
     }
 
     pub fn get_notes(&self) -> Option<String> {
-        trim_to_option(&self.fields[7].value)
+        trim_to_option(self.get(Field::Notes))
     }
 }
 
@@ -679,6 +732,19 @@ mod tests {
         }
     }
 
+    /// `Field::index` returns the discriminant, so `ALL` must stay in
+    /// declaration order for the two to describe the same layout.
+    #[test]
+    fn field_order_matches_declaration() {
+        for (position, field) in Field::ALL.iter().enumerate() {
+            assert_eq!(field.index(), position, "{field:?} is out of order in ALL");
+        }
+    }
+
+    #[test]
+    fn every_field_is_built_into_the_form() {
+        assert_eq!(CredentialForm::new().fields.len(), Field::ALL.len());
+    }
 
     /// Guards the failure mode that commit 3597b38 hit by hand: inserting a
     /// field shifts every later position, and a missed site silently routes
@@ -715,14 +781,14 @@ mod tests {
     #[test]
     fn whitespace_only_optional_field_is_none() {
         let mut form = CredentialForm::new();
-        form.fields[2].value = "   ".to_string();
+        form.set(Field::Username, "   ".to_string());
         assert_eq!(form.get_username(), None);
     }
 
     #[test]
     fn tags_split_on_whitespace_dropping_empties() {
         let mut form = CredentialForm::new();
-        form.fields[5].value = "dev  vcs   ".to_string();
+        form.set(Field::Tags, "dev  vcs   ".to_string());
         assert_eq!(form.get_tags(), vec!["dev".to_string(), "vcs".to_string()]);
     }
 
@@ -732,14 +798,14 @@ mod tests {
             cred_type: CredentialType::Note,
             ..edit_params()
         });
-        assert!(!form.fields[3].required);
+        assert!(!form.fields[Field::Secret.index()].required);
     }
 
     #[test]
     fn cycling_onto_note_clears_the_secret_requirement() {
         let mut form = CredentialForm::new();
-        form.active_field = 1;
-        assert!(form.fields[3].required);
+        form.active_field = Field::Type.index();
+        assert!(form.fields[Field::Secret.index()].required);
 
         // Password -> ApiKey -> SshKey -> Certificate -> Note
         for _ in 0..4 {
@@ -747,14 +813,14 @@ mod tests {
         }
 
         assert_eq!(form.credential_type, CredentialType::Note);
-        assert!(!form.fields[3].required);
-        assert_eq!(form.fields[1].value, "Note");
+        assert!(!form.fields[Field::Secret.index()].required);
+        assert_eq!(form.get(Field::Type), "Note");
     }
 
     #[test]
     fn cycling_is_reversible() {
         let mut form = CredentialForm::new();
-        form.active_field = 1;
+        form.active_field = Field::Type.index();
         form.cycle_type(true);
         form.cycle_type(false);
         assert_eq!(form.credential_type, CredentialType::Password);
@@ -763,7 +829,7 @@ mod tests {
     #[test]
     fn cycling_off_a_select_field_is_ignored() {
         let mut form = CredentialForm::new();
-        form.active_field = 0;
+        form.active_field = Field::Name.index();
         form.cycle_type(true);
         assert_eq!(form.credential_type, CredentialType::Password);
     }
