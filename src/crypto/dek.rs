@@ -92,7 +92,7 @@ fn build_dek_from_bytes(bytes: &[u8]) -> CryptoResult<DataEncryptionKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::kdf::{derive_master_key, KdfParams};
+    use crate::crypto::kdf::{create_key_material, KdfParams};
 
     fn test_master_key() -> MasterKey {
         MasterKey::from_bytes([0x42u8; 32])
@@ -140,12 +140,12 @@ mod tests {
         let params = KdfParams::testing();
 
         // Simulate initial vault creation
-        let (old_master_key, _) = derive_master_key(b"old_password", &params).unwrap();
+        let (old_master_key, _) = create_key_material(b"old_password", &params).unwrap();
         let dek = DataEncryptionKey::generate();
         let old_wrapped = dek.wrap(&old_master_key).unwrap();
 
         // Simulate password change
-        let (new_master_key, _) = derive_master_key(b"new_password", &params).unwrap();
+        let (new_master_key, _) = create_key_material(b"new_password", &params).unwrap();
 
         // Unwrap with old key, rewrap with new key
         let unwrapped_dek = DataEncryptionKey::unwrap(&old_wrapped, &old_master_key).unwrap();

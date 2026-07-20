@@ -127,7 +127,7 @@ fn derive_key(ikm: &[u8], context: &str, info: &str) -> CryptoResult<DerivedKey>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::kdf::{derive_master_key, KdfParams};
+    use crate::crypto::kdf::{create_key_material, KdfParams};
 
     fn test_master_key() -> MasterKey {
         MasterKey::from_bytes([0x42u8; 32])
@@ -162,12 +162,12 @@ mod tests {
         let params = KdfParams::testing();
 
         // Initial setup
-        let (old_master_key, _) = derive_master_key(b"old_password", &params).unwrap();
+        let (old_master_key, _) = create_key_material(b"old_password", &params).unwrap();
         let mut hierarchy = KeyHierarchy::new(old_master_key).unwrap();
         let original_dek = *hierarchy.dek().as_bytes();
 
         // Change password
-        let (new_master_key, _) = derive_master_key(b"new_password", &params).unwrap();
+        let (new_master_key, _) = create_key_material(b"new_password", &params).unwrap();
         let new_wrapped_dek = hierarchy.change_master_key(new_master_key.clone()).unwrap();
 
         // DEK should remain the same

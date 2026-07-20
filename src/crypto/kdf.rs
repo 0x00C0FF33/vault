@@ -1,27 +1,66 @@
 //! Key Derivation Function
 //!
-//! Argon2id password hashing for master key derivation.
+//! Argon2id stretches the password into a root secret, which HKDF then splits
+//! into two independent values:
+//!
+//! ```text
+//! password + salt --Argon2id--> root  (never stored)
+//!                                 |
+//!                                 +-- HKDF("vault:verifier")   --> stored on disk
+//!                                 +-- HKDF("vault:master-key") --> wraps the DEK
+//! ```
+//!
+//! Only the verifier reaches the database. HKDF is one-way and the two labels
+//! are distinct, so the stored value proves a password was correct while
+//! unlocking nothing: recovering the master key from the database alone is not
+//! possible, and an attacker holding the file must still brute-force the
+//! password through Argon2.
+//!
+//! Vaults written before this scheme stored the Argon2 PHC string, whose hash
+//! output *was* the master key — reading the database was enough to unwrap the
+//! DEK. [`verify_legacy_master_key`] opens such a vault exactly once so
+//! `Vault::unlock` can migrate it.
 
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2, Params,
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordVerifier},
+    Algorithm, Argon2, Params, Version,
 };
+use hkdf::Hkdf;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use super::{CryptoError, CryptoResult, LockedBuffer};
 
+/// Length of the per-vault Argon2 salt.
+pub const SALT_LEN: usize = 16;
+
+/// Length of the Argon2 output and of every key derived from it.
+const KEY_LEN: usize = 32;
+
+/// HKDF salt. Distinct from the Argon2 salt; scopes derivation to this scheme.
+const HKDF_SALT: &[u8] = b"vault-kdf-v2";
+
+/// HKDF labels. These MUST stay distinct — sharing a label would make the
+/// stored verifier equal to the master key, which is the flaw this design
+/// exists to remove.
+const INFO_MASTER_KEY: &[u8] = b"vault:master-key";
+const INFO_VERIFIER: &[u8] = b"vault:verifier";
+
 /// Master key (256 bits)
 ///
-/// Memory-locked to prevent swapping to disk.
+/// Wraps the DEK and is never written to disk. Memory-locked to prevent
+/// swapping.
 #[derive(Clone)]
 pub struct MasterKey {
-    key: LockedBuffer<32>,
+    key: LockedBuffer<KEY_LEN>,
 }
 
 impl MasterKey {
     /// Create from raw bytes
-    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub fn from_bytes(bytes: [u8; KEY_LEN]) -> Self {
         Self {
             key: LockedBuffer::new(bytes),
         }
@@ -29,7 +68,7 @@ impl MasterKey {
 
     /// Get key bytes (used in tests; kept for type-safe 32-byte access)
     #[allow(dead_code)]
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub fn as_bytes(&self) -> &[u8; KEY_LEN] {
         &self.key
     }
 }
@@ -47,8 +86,22 @@ impl std::fmt::Debug for MasterKey {
     }
 }
 
+/// Password-derived material that is safe to persist.
+///
+/// Everything here can be read by an attacker with the database file without
+/// giving them the ability to unwrap the DEK.
+#[derive(Debug, Clone)]
+pub struct StoredKeyMaterial {
+    /// Per-vault Argon2 salt.
+    pub salt: [u8; SALT_LEN],
+    /// Argon2 cost parameters this vault was created with.
+    pub params: KdfParams,
+    /// HKDF("vault:verifier") — proves a password without unlocking anything.
+    pub verifier: [u8; KEY_LEN],
+}
+
 /// KDF parameters for Argon2id
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KdfParams {
     /// Memory cost in KiB (default: 19456 = 19 MiB)
     pub memory_cost: u32,
@@ -66,7 +119,7 @@ impl Default for KdfParams {
             memory_cost: 19456, // 19 MiB - OWASP recommended minimum
             time_cost: 2,
             parallelism: 1,
-            output_len: 32,
+            output_len: KEY_LEN,
         }
     }
 }
@@ -79,86 +132,136 @@ impl KdfParams {
             memory_cost: 1024, // 1 MiB
             time_cost: 1,
             parallelism: 1,
-            output_len: 32,
+            output_len: KEY_LEN,
         }
     }
 }
 
-/// Derive master key from password using Argon2id
-/// Returns (`MasterKey`, `password_hash_string`)
-pub fn derive_master_key(password: &[u8], params: &KdfParams) -> CryptoResult<(MasterKey, String)> {
-    let salt = SaltString::generate(&mut OsRng);
-
-    let argon2_params = Params::new(
-        params.memory_cost,
-        params.time_cost,
-        params.parallelism,
-        Some(params.output_len),
-    )
-    .map_err(|e| CryptoError::KeyDerivationFailed(e.to_string()))?;
-
-    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, argon2_params);
-
-    let password_hash = argon2
-        .hash_password(password, &salt)
-        .map_err(|e| CryptoError::KeyDerivationFailed(e.to_string()))?;
-
-    // Extract the hash output as the key
-    let hash_output = password_hash
-        .hash
-        .ok_or_else(|| CryptoError::KeyDerivationFailed("No hash output".to_string()))?;
-
-    let hash_bytes = hash_output.as_bytes();
-    if hash_bytes.len() < 32 {
-        return Err(CryptoError::KeyDerivationFailed(
-            "Hash output too short".to_string(),
-        ));
-    }
-
-    let mut key_bytes = [0u8; 32];
-    key_bytes.copy_from_slice(&hash_bytes[..32]);
-
-    // MasterKey constructor handles mlock
-    let master_key = MasterKey::from_bytes(key_bytes);
-
-    // Zeroize the temporary buffer
-    key_bytes.zeroize();
-
-    Ok((master_key, password_hash.to_string()))
+/// Derive a fresh master key and the material to persist alongside it.
+///
+/// Generates a new random salt. Used when initialising a vault and when
+/// changing the password.
+pub fn create_key_material(
+    password: &[u8],
+    params: &KdfParams,
+) -> CryptoResult<(MasterKey, StoredKeyMaterial)> {
+    let mut salt = [0u8; SALT_LEN];
+    OsRng.fill_bytes(&mut salt);
+    derive_from_salt(password, salt, params)
 }
 
-/// Verify password against stored hash and derive key
-pub fn verify_master_key(password: &[u8], password_hash: &str) -> CryptoResult<MasterKey> {
+/// Check a password against stored material and recover the master key.
+///
+/// The verifier comparison is constant-time. Returns
+/// [`CryptoError::InvalidPassword`] when the password is wrong.
+pub fn verify_and_derive_master_key(
+    password: &[u8],
+    stored: &StoredKeyMaterial,
+) -> CryptoResult<MasterKey> {
+    let (master_key, derived) = derive_from_salt(password, stored.salt, &stored.params)?;
+
+    if derived.verifier.ct_eq(&stored.verifier).into() {
+        return Ok(master_key);
+    }
+    Err(CryptoError::InvalidPassword)
+}
+
+/// Verify a password against a pre-v2 PHC hash and recover the master key it
+/// encodes.
+///
+/// # Security
+///
+/// The returned key is the Argon2 output stored verbatim in the database, so
+/// this trusts material an attacker could read for themselves. It exists only
+/// to open a legacy vault once during migration and must never be reachable
+/// from the normal unlock path.
+pub fn verify_legacy_master_key(password: &[u8], password_hash: &str) -> CryptoResult<MasterKey> {
     let parsed_hash = PasswordHash::new(password_hash)
         .map_err(|e| CryptoError::KeyDerivationFailed(e.to_string()))?;
 
-    // Verify the password
     Argon2::default()
         .verify_password(password, &parsed_hash)
         .map_err(|_| CryptoError::InvalidPassword)?;
 
-    // Extract key from hash
     let hash_output = parsed_hash
         .hash
         .ok_or_else(|| CryptoError::KeyDerivationFailed("No hash output".to_string()))?;
 
     let hash_bytes = hash_output.as_bytes();
-    if hash_bytes.len() < 32 {
+    if hash_bytes.len() < KEY_LEN {
         return Err(CryptoError::KeyDerivationFailed(
             "Hash output too short".to_string(),
         ));
     }
 
-    let mut key_bytes = [0u8; 32];
-    key_bytes.copy_from_slice(&hash_bytes[..32]);
-
-    // MasterKey constructor handles mlock
+    let mut key_bytes = [0u8; KEY_LEN];
+    key_bytes.copy_from_slice(&hash_bytes[..KEY_LEN]);
     let master_key = MasterKey::from_bytes(key_bytes);
-
-    // Zeroize the temporary buffer
     key_bytes.zeroize();
 
     Ok(master_key)
+}
+
+/// Run Argon2id then split the result into a master key and a verifier.
+fn derive_from_salt(
+    password: &[u8],
+    salt: [u8; SALT_LEN],
+    params: &KdfParams,
+) -> CryptoResult<(MasterKey, StoredKeyMaterial)> {
+    let root = derive_root(password, &salt, params)?;
+
+    let mut master_bytes = expand(root.as_ref(), INFO_MASTER_KEY)?;
+    let verifier = expand(root.as_ref(), INFO_VERIFIER)?;
+
+    let master_key = MasterKey::from_bytes(master_bytes);
+    master_bytes.zeroize();
+
+    let material = StoredKeyMaterial {
+        salt,
+        params: params.clone(),
+        verifier,
+    };
+
+    Ok((master_key, material))
+}
+
+/// Stretch the password into the root secret. The root is memory-locked and
+/// dropped as soon as both subkeys are derived.
+fn derive_root(
+    password: &[u8],
+    salt: &[u8],
+    params: &KdfParams,
+) -> CryptoResult<LockedBuffer<KEY_LEN>> {
+    let argon2_params = Params::new(
+        params.memory_cost,
+        params.time_cost,
+        params.parallelism,
+        Some(KEY_LEN),
+    )
+    .map_err(|e| CryptoError::KeyDerivationFailed(e.to_string()))?;
+
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon2_params);
+
+    let mut root = [0u8; KEY_LEN];
+    argon2
+        .hash_password_into(password, salt, &mut root)
+        .map_err(|e| CryptoError::KeyDerivationFailed(e.to_string()))?;
+
+    let locked = LockedBuffer::new(root);
+    root.zeroize();
+
+    Ok(locked)
+}
+
+/// HKDF-SHA256 expansion of the root secret under a domain-separating label.
+fn expand(root: &[u8], info: &[u8]) -> CryptoResult<[u8; KEY_LEN]> {
+    let hk = Hkdf::<Sha256>::new(Some(HKDF_SALT), root);
+
+    let mut okm = [0u8; KEY_LEN];
+    hk.expand(info, &mut okm)
+        .map_err(|e| CryptoError::KeyDerivationFailed(e.to_string()))?;
+
+    Ok(okm)
 }
 
 #[cfg(test)]
@@ -166,63 +269,89 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_derive_master_key() {
-        let password = b"test_password_123";
+    fn test_verify_correct_password() {
         let params = KdfParams::testing();
+        let (key, material) = create_key_material(b"test_password_123", &params).unwrap();
 
-        let (key, hash) = derive_master_key(password, &params).unwrap();
-
-        assert_eq!(key.as_bytes().len(), 32);
-        assert!(!hash.is_empty());
-        assert!(hash.starts_with("$argon2id$"));
-    }
-
-    #[test]
-    fn test_verify_master_key() {
-        let password = b"test_password_123";
-        let params = KdfParams::testing();
-
-        let (original_key, hash) = derive_master_key(password, &params).unwrap();
-        let verified_key = verify_master_key(password, &hash).unwrap();
-
-        assert_eq!(original_key.as_bytes(), verified_key.as_bytes());
+        let recovered = verify_and_derive_master_key(b"test_password_123", &material).unwrap();
+        assert_eq!(key.as_bytes(), recovered.as_bytes());
     }
 
     #[test]
     fn test_wrong_password_fails() {
-        let password = b"correct_password";
-        let wrong_password = b"wrong_password";
         let params = KdfParams::testing();
+        let (_, material) = create_key_material(b"correct_password", &params).unwrap();
 
-        let (_, hash) = derive_master_key(password, &params).unwrap();
-        let result = verify_master_key(wrong_password, &hash);
-
+        let result = verify_and_derive_master_key(b"wrong_password", &material);
         assert!(matches!(result, Err(CryptoError::InvalidPassword)));
     }
 
     #[test]
     fn test_different_salts_different_keys() {
-        let password = b"same_password";
         let params = KdfParams::testing();
+        let (key1, m1) = create_key_material(b"same_password", &params).unwrap();
+        let (key2, m2) = create_key_material(b"same_password", &params).unwrap();
 
-        let (key1, _) = derive_master_key(password, &params).unwrap();
-        let (key2, _) = derive_master_key(password, &params).unwrap();
-
-        // Different salts should produce different keys
+        assert_ne!(m1.salt, m2.salt);
         assert_ne!(key1.as_bytes(), key2.as_bytes());
     }
 
     #[test]
-    fn test_deterministic_verification() {
-        let password = b"test_password";
+    fn test_deterministic_for_same_salt() {
         let params = KdfParams::testing();
+        let (key1, material) = create_key_material(b"test_password", &params).unwrap();
 
-        let (key1, hash) = derive_master_key(password, &params).unwrap();
-        let key2 = verify_master_key(password, &hash).unwrap();
-        let key3 = verify_master_key(password, &hash).unwrap();
+        let key2 = verify_and_derive_master_key(b"test_password", &material).unwrap();
+        let key3 = verify_and_derive_master_key(b"test_password", &material).unwrap();
 
-        // Verification should always produce the same key
         assert_eq!(key1.as_bytes(), key2.as_bytes());
         assert_eq!(key2.as_bytes(), key3.as_bytes());
+    }
+
+    /// The whole point of the scheme: what is written to disk must not be the
+    /// key that unwraps the DEK.
+    #[test]
+    fn test_verifier_is_not_the_master_key() {
+        let params = KdfParams::testing();
+        let (master_key, material) = create_key_material(b"test_password", &params).unwrap();
+
+        assert_ne!(&material.verifier, master_key.as_bytes());
+    }
+
+    /// Regression test for the pre-v2 flaw, where the persisted value *was* the
+    /// master key and could unwrap the DEK on its own.
+    #[test]
+    fn test_stored_material_cannot_unwrap_dek() {
+        use crate::crypto::dek::DataEncryptionKey;
+
+        let params = KdfParams::testing();
+        let (master_key, material) = create_key_material(b"test_password", &params).unwrap();
+
+        let dek = DataEncryptionKey::generate();
+        let wrapped = dek.wrap(&master_key).unwrap();
+
+        // An attacker holding the database has exactly `material`. Treating the
+        // stored verifier as a key must not open the wrapped DEK.
+        let forged = MasterKey::from_bytes(material.verifier);
+        assert!(DataEncryptionKey::unwrap(&wrapped, &forged).is_err());
+    }
+
+    #[test]
+    fn test_legacy_hash_still_verifies() {
+        // A hash produced by the pre-v2 scheme must remain openable so existing
+        // vaults can migrate.
+        use argon2::password_hash::{PasswordHasher, SaltString};
+
+        let salt = SaltString::generate(&mut OsRng);
+        let hash = Argon2::default()
+            .hash_password(b"legacy_password", &salt)
+            .unwrap()
+            .to_string();
+
+        assert!(verify_legacy_master_key(b"legacy_password", &hash).is_ok());
+        assert!(matches!(
+            verify_legacy_master_key(b"wrong_password", &hash),
+            Err(CryptoError::InvalidPassword)
+        ));
     }
 }
