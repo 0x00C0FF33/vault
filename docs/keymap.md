@@ -1,3 +1,9 @@
+# Key handling pipeline
+
+How a keypress travels from the terminal to a text-buffer mutation. This
+expands on the dispatch summary in
+[architecture.md](architecture.md#modal-input).
+
 The flow starts from `app/input.rs` which is the entry point for all key events:
     1. **`app/input.rs` - `handle_key_event()`** receives the raw `KeyEvent` from crossterm's event loop.
     2. **`app/input.rs` - `resolve_action()`** looks at the current mode and decides which mapper to call. For `Command`/`Search` mode, it calls `resolve_text_action()`.

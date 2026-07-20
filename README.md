@@ -1,4 +1,4 @@
-[Features](#features) · [Installation](#installation) · [Usage](#usage) · [Security](#security) · [Dependencies](#dependencies)
+[Features](#features) · [Installation](#installation) · [Usage](#usage) · [Security](#security) · [Documentation](#documentation) · [Dependencies](#dependencies)
 
 # Vault
 
@@ -11,17 +11,17 @@ Self-hosted, local-first architecture - your credentials never touch our servers
 <a name="features"></a>
 ## ✨ Features
 
-- **Secure Storage:** Per-credential encryption with ChaCha20-Poly1305 AEAD
+- **Secure Storage:** Credential secrets encrypted with ChaCha20-Poly1305 AEAD
 - **Strong Key Derivation:** Argon2id with 19 MiB memory cost
 - **Hierarchical Keys:** Master Key wraps DEK (Data Encryption Key), DEK encrypts credentials - enables password changes without re-encrypting data
-    - **Master key** → **DEK (wrapped)** → **Credential keys (encrypted)**
+    - **Password** → **Master key** → **DEK (wrapped)** → **Credential secrets**
 - **Full-Text Search:** SQLite FTS5 for fast search
 - **Search or filter by project/tag:** Organize your credentials and keys via tagging
 - **Vim Keybindings:** Modal editing with hjkl navigation
 - **TOTP Support:** Generate 2FA codes with countdown timer
 - **Password Generator:** Configurable CSPRNG password generation
 - **Password Strength Checker:** Evaluates the security of user passwords in real-time, providing feedback on complexity, and length to help users create stronger, safer passwords.
-- **Audit Trail:** Extensive HMAC-signed logs for tamper detection and activity records
+- **Audit Trail:** HMAC-signed logs for tamper detection and activity records
 - **Auto-clear clipboard:** Automatically overwrite or wipe clipboard memory with 0-bytes (Zeroization) after 15 seconds
 - **Auto-lock:** Automatically lock vault after 3 minutes of inactivity
 - **Export:** Flexible credential export with format and encryption options
@@ -34,7 +34,7 @@ Self-hosted, local-first architecture - your credentials never touch our servers
 
 ### Prerequisites
 
-- Requires [Rust toolchain](https://rustup.rs/) (rustc, cargo) to be installed on your system!
+- Requires [Rust toolchain](https://rustup.rs/) **1.91 or newer** (rustc, cargo) to be installed on your system!
 
 ### Quick Install
 
@@ -52,6 +52,8 @@ cd vault
 cargo build --release
 Copy-Item .\target\release\vault.exe "$env:LOCALAPPDATA\Microsoft\WindowsApps\"
 ```
+
+Developed and tested on Linux. See [docs/contributing.md](docs/contributing.md#platform-support) for the state of other platforms.
 
 ### Alternative Methods
 
@@ -79,7 +81,7 @@ cargo install --path .
 <summary><b>Development/testing</b></summary>
 
 ```bash
-cargo run
+cargo run -- /tmp/test.db   # throwaway vault, not your real one
 ```
 </details>
 
@@ -89,8 +91,11 @@ cargo run
 ## 🚀 Usage
 
 ```bash
-vault
+vault                # default vault
+vault /path/to.db    # specific vault file
 ```
+
+Your vault lives at `~/.local/share/vault/vault.db` on Linux; see [docs/storage.md](docs/storage.md#location) for other platforms.
 
 ### Normal Mode
 | Key | Action |
@@ -137,30 +142,45 @@ vault
 ## 🛡️ Security
 
 ### Encryption
-- **ChaCha20-Poly1305** AEAD encryption
+- **ChaCha20-Poly1305** AEAD encryption for credential secrets
 - **Argon2id** key derivation (19 MiB, 2 iterations) - resistant to GPU/ASIC attacks
-- **Unique random salt** per vault, embedded in PHC string
+- **HKDF-SHA256** splits the derived secret, so the value stored on disk cannot decrypt anything
+- **Unique random salt** per vault
 
 ### Key Architecture
-- **Master Key** derived from your password via Argon2id
+- **Master Key** derived from your password via Argon2id - never written to disk
 - **Data Encryption Key (DEK)** random 256-bit key that encrypts all credentials
 - **Wrapped DEK** - DEK encrypted by Master Key, stored in database
 - **Password changes** only re-wrap the DEK - no need to re-encrypt credentials
 
 ### Memory Protection
 - **Zeroized memory** for sensitive data
-- `mlock()`/`VirtualLock()` to prevent key material from swapping to disk
-- `PR_SET_DUMPABLE=0` to prevent core dumps (Unix)
+- `mlock()`/`VirtualLock()` to prevent key material from swapping to disk (best-effort)
+- `PR_SET_DUMPABLE=0` to prevent core dumps (Linux)
 
 ### Audit Trail
-- **Audit Trail** all sensitive actions logged (unlock, create, read, copy, update, delete)
+- **Audit Trail** all sensitive actions logged (unlock, create, read, copy, update, delete, export)
 - **HMAC-SHA256** signatures on each log entry
-- **Tamper detection** on unlock and via `:audit` command 
-- **Detects** if attacker modifies or deletes log entries
+- **Tamper detection** on unlock and via `:audit` command
+- **Detects modification** of signed fields. Entries are signed individually and timestamps are not covered, so deletion, reordering and timestamp edits are **not** detected - see [docs/security.md](docs/security.md#limitations)
+
+### What is not encrypted
+
+Credential **names, usernames, URLs and tags are stored in plaintext** so full-text search can index them. Anyone with your vault file learns which accounts you hold and under what usernames - but not the secrets. If that metadata is itself sensitive to you, read [docs/security.md](docs/security.md#what-is-protected) first.
 
 ### Miscellaneous
 - **Auto-lock** after 3 minutes
 - **Auto-wipe clipboard** after 15 seconds with zeroization
+
+<a name="documentation"></a>
+## 📚 Documentation
+
+Reference documentation for contributors lives in [docs/](docs/):
+
+- [Architecture](docs/architecture.md) - module layering, control flow, invariants
+- [Security design](docs/security.md) - threat model, key hierarchy, limitations
+- [Storage format](docs/storage.md) - on-disk layout, schema, versioning
+- [Contributing](docs/contributing.md) - toolchain, tests, lint policy, conventions
 
 <a name="dependencies"></a>
 ## ⚙️ Dependencies
@@ -184,6 +204,7 @@ vault
 - [`hmac`](https://crates.io/crates/hmac)
 - [`sha1`](https://crates.io/crates/sha1)
 - [`rand`](https://crates.io/crates/rand)
+- [`subtle`](https://crates.io/crates/subtle)
 - [`secrecy`](https://crates.io/crates/secrecy)
 - [`zeroize`](https://crates.io/crates/zeroize)
     Features: `derive`
