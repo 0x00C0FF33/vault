@@ -430,6 +430,7 @@ fn apply_search_filter(results: &mut Vec<Credential>, query: &str) {
     results.retain(|c| {
         c.name.to_lowercase().contains(&query_lower)
             || c.username.as_ref().is_some_and(|u| u.to_lowercase().contains(&query_lower))
+            || c.url.as_ref().is_some_and(|u| u.to_lowercase().contains(&query_lower))
             || c.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
     });
 }
@@ -544,5 +545,82 @@ mod totp_display_tests {
             panic!("expected a reason, got {display:?}");
         };
         assert!(reason.contains("base32"), "reason should name the problem: {reason}");
+    }
+}
+
+#[cfg(test)]
+mod search_filter_tests {
+    use super::*;
+    use chrono::Local;
+
+    fn credential(name: &str, username: Option<&str>, url: Option<&str>, tags: &[&str]) -> Credential {
+        Credential {
+            id: name.to_string(),
+            name: name.to_string(),
+            credential_type: CredentialType::Password,
+            username: username.map(ToString::to_string),
+            encrypted_secret: String::new(),
+            encrypted_notes: None,
+            encrypted_totp_secret: None,
+            url: url.map(ToString::to_string),
+            tags: tags.iter().map(ToString::to_string).collect(),
+            created_at: Local::now(),
+            updated_at: Local::now(),
+            accessed_at: None,
+        }
+    }
+
+    fn matching_names(query: &str) -> Vec<String> {
+        let mut results = vec![
+            credential("GitHub", Some("octocat"), Some("https://github.com"), &["dev"]),
+            credential("Bank", Some("alice"), Some("https://examplebank.com"), &["money"]),
+            credential("Mail", None, None, &["personal"]),
+        ];
+        apply_search_filter(&mut results, query);
+        results.into_iter().map(|c| c.name).collect()
+    }
+
+    #[test]
+    fn matches_on_name() {
+        assert_eq!(matching_names("git"), vec!["GitHub"]);
+    }
+
+    #[test]
+    fn matches_on_username() {
+        assert_eq!(matching_names("octo"), vec!["GitHub"]);
+    }
+
+    /// The FTS schema has always indexed url, but the in-memory filter the app
+    /// actually uses did not consult it, so searching by domain found nothing.
+    #[test]
+    fn matches_on_url() {
+        assert_eq!(matching_names("examplebank"), vec!["Bank"]);
+    }
+
+    #[test]
+    fn matches_on_tag() {
+        assert_eq!(matching_names("personal"), vec!["Mail"]);
+    }
+
+    #[test]
+    fn matching_is_case_insensitive() {
+        assert_eq!(matching_names("GITHUB"), vec!["GitHub"]);
+    }
+
+    /// Substring rather than prefix matching: a fragment from the middle of a
+    /// name still finds it, which FTS5 prefix queries would not.
+    #[test]
+    fn matches_a_fragment_inside_a_word() {
+        assert_eq!(matching_names("hub"), vec!["GitHub"]);
+    }
+
+    #[test]
+    fn an_empty_query_keeps_everything() {
+        assert_eq!(matching_names("").len(), 3);
+    }
+
+    #[test]
+    fn a_query_matching_nothing_empties_the_list() {
+        assert!(matching_names("zzz").is_empty());
     }
 }
