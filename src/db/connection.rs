@@ -19,16 +19,6 @@ pub struct DatabaseConfig {
     pub foreign_keys: bool,
 }
 
-impl Default for DatabaseConfig {
-    fn default() -> Self {
-        Self {
-            path: default_db_path(),
-            wal_mode: true,
-            foreign_keys: true,
-        }
-    }
-}
-
 impl DatabaseConfig {
     /// Create config for in-memory database (testing)
     #[cfg(test)]
@@ -40,21 +30,19 @@ impl DatabaseConfig {
         }
     }
 
-    /// Create config for a specific path
+    /// Create config for a specific path.
+    ///
+    /// Deliberately no `Default`. Where the vault lives is decided once, by
+    /// `AppConfig` (`app/config.rs`); a default here would be a second answer
+    /// to that question, and a caller reaching for it would open a different
+    /// file than the application does.
     pub fn with_path(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            ..Default::default()
+            wal_mode: true,
+            foreign_keys: true,
         }
     }
-}
-
-/// Get default database path (~/.vault/vault.db)
-fn default_db_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".vault")
-        .join("vault.db")
 }
 
 /// Database wrapper with connection management
