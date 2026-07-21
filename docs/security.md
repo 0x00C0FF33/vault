@@ -109,7 +109,7 @@ it would require re-encrypting every credential and is not implemented.
 | Secret encryption | ChaCha20-Poly1305 | 256-bit key, 96-bit random nonce per operation |
 | DEK wrapping | ChaCha20-Poly1305 | as above, key = master key |
 | Audit signatures | HMAC-SHA256 | key derived from DEK |
-| TOTP | HMAC-SHA1 | per RFC 6238; SHA-1 is required by the standard |
+| TOTP | HMAC-SHA1, or SHA-256/512 when an `otpauth://` URI asks for it | per RFC 6238; SHA-1 is the default the standard mandates |
 
 Argon2id parameters meet the OWASP minimum. They are stored per vault in
 `kdf_params`, so a vault created under one setting keeps opening after

@@ -216,6 +216,9 @@ Reference documentation for contributors lives in [docs/](docs/):
 
 - [`totp-rs`](https://crates.io/crates/totp-rs)
   Features: `otpauth`
+- [`url`](https://crates.io/crates/url),
+  [`percent-encoding`](https://crates.io/crates/percent-encoding)
+  Parsing `otpauth://` URIs; see `crypto/totp.rs::from_uri`
 
 ### Clipboard
 
