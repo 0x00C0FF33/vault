@@ -86,8 +86,8 @@ finds `hub` inside `GitHub` and narrows whatever the tag and type filters
 left rather than issuing a query that would discard them.
 
 Schema 3 and earlier also carried `credentials_fts`, an FTS5
-external-content table maintained by three triggers. No query read it;
-v4 drops it. See [format versions](#schema_version--table-structure).
+external-content table maintained by three triggers. No query read it, so
+v4 removed it — which is why a v3 database is refused rather than opened.
 
 ### `audit_log`
 
@@ -128,17 +128,8 @@ The version is written from the `SCHEMA_VERSION` constant rather than
 inlined in the DDL, so bumping the constant cannot stamp new databases
 with a number their own check would reject.
 
-Current version: **4**.
-
-One conversion exists, from 3 to 4: `convert_v3_to_v4` (`db/schema.rs`)
-drops `credentials_fts` and its three triggers, then stamps 4. It runs
-before the version check, in a single transaction, so an interrupted
-conversion leaves a v3 database for the next attempt rather than a
-half-dropped index claiming to be v4.
-
-It is temporary. Once the vaults in use have been opened by this build it
-is removed, and a v3 database is then rejected outright like any other
-foreign version.
+Current version: **4**. No conversion code exists; a database at any
+other version is rejected.
 
 ### `kdf_version` — key material
 

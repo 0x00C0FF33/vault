@@ -590,8 +590,8 @@ mod search_filter_tests {
         assert_eq!(matching_names("octo"), vec!["GitHub"]);
     }
 
-    /// The FTS schema has always indexed url, but the in-memory filter the app
-    /// actually uses did not consult it, so searching by domain found nothing.
+    /// Searching by domain once found nothing: the filter did not consult url
+    /// even though it is one of the columns stored in the clear.
     #[test]
     fn matches_on_url() {
         assert_eq!(matching_names("examplebank"), vec!["Bank"]);
@@ -608,7 +608,8 @@ mod search_filter_tests {
     }
 
     /// Substring rather than prefix matching: a fragment from the middle of a
-    /// name still finds it, which FTS5 prefix queries would not.
+    /// name still finds it, which a prefix index would not. This is why the
+    /// search is an in-memory filter and not a database query.
     #[test]
     fn matches_a_fragment_inside_a_word() {
         assert_eq!(matching_names("hub"), vec!["GitHub"]);
