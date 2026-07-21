@@ -13,7 +13,7 @@ program is built and why, not how to use it — for usage see the top-level
 - **[security.md](security.md)** — threat model, key hierarchy, what is and
   is not encrypted, and the limitations that follow.
 - **[storage.md](storage.md)** — on-disk format: tables, metadata keys,
-  the FTS index, and format versioning.
+  and format versioning.
 - **[contributing.md](contributing.md)** — toolchain, tests, lint policy,
   and commit conventions.
 

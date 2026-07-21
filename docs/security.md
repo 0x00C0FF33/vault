@@ -142,11 +142,11 @@ An attacker with the vault file learns which services you hold accounts
 for, under which usernames, at which URLs, how you have grouped them, and
 when you last touched each one. They do not learn the secrets.
 
-This is a deliberate trade, not an oversight: full-text search is
-implemented with SQLite FTS5 over `name`, `username`, `url` and `tags`
-(`db/schema.rs`), which requires those columns in the clear. Encrypting
-them would mean either decrypting every row per query or maintaining an
-encrypted index — neither is implemented.
+This is a deliberate trade, not an oversight: the credential list is
+rendered from these columns and searched over them
+(`app/credentials_handler.rs`), which requires them in the clear.
+Encrypting them would mean decrypting every row to draw a list or match a
+query — not implemented, and not free.
 
 If credential *names* are themselves sensitive in your threat model,
 vault is not sufficient on its own.

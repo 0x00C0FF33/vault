@@ -1,6 +1,6 @@
 //! Database Schema
 //!
-//! `SQLite` schema with FTS5 for full-text search.
+//! `SQLite` schema and the conversions between its versions.
 
 use rusqlite::Connection;
 
@@ -11,7 +11,10 @@ use super::{DbError, DbResult};
 /// A database carrying any other version is refused rather than adapted;
 /// conversion between structures is added when a structure change is, and
 /// removed once no database needs it.
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 4;
+
+/// Last version that carried the FTS5 index. See [`convert_v3_to_v4`].
+const SCHEMA_VERSION_WITH_FTS: i32 = 3;
 
 /// Create the schema, or check that an existing one is readable.
 pub fn init_schema(conn: &Connection) -> DbResult<()> {
@@ -27,7 +30,43 @@ pub fn init_schema(conn: &Connection) -> DbResult<()> {
         return create_schema(conn);
     }
 
+    convert_v3_to_v4(conn)?;
     require_current_version(conn)
+}
+
+/// Drop the FTS5 index a v3 database still carries.
+///
+/// `credentials_fts` and its three triggers were maintained on every insert,
+/// update and delete, and no query read them — search is a substring match
+/// over the already-fetched list. v4 removes them.
+///
+/// Temporary, and the only conversion in the codebase. Once the databases in
+/// use have been opened by this build it goes, along with
+/// `SCHEMA_VERSION_WITH_FTS`, leaving `require_current_version` to reject a v3
+/// database outright.
+fn convert_v3_to_v4(conn: &Connection) -> DbResult<()> {
+    if get_schema_version(conn) != SCHEMA_VERSION_WITH_FTS {
+        return Ok(());
+    }
+
+    // One transaction, so a failure part-way leaves a v3 database intact for
+    // the next attempt rather than a half-dropped index stamped v4.
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(
+        r"
+        DROP TRIGGER IF EXISTS credentials_ai;
+        DROP TRIGGER IF EXISTS credentials_ad;
+        DROP TRIGGER IF EXISTS credentials_au;
+        DROP TABLE IF EXISTS credentials_fts;
+        ",
+    )?;
+    tx.execute(
+        "UPDATE metadata SET value = ?1 WHERE key = 'schema_version'",
+        [SCHEMA_VERSION.to_string()],
+    )?;
+    tx.commit()?;
+
+    Ok(())
 }
 
 /// Reject a database written by a different schema.
@@ -70,34 +109,6 @@ fn create_schema(conn: &Connection) -> DbResult<()> {
             updated_at TEXT NOT NULL,
             accessed_at TEXT
         );
-
-        -- FTS5 virtual table for full-text search
-        CREATE VIRTUAL TABLE IF NOT EXISTS credentials_fts USING fts5(
-            name,
-            username,
-            url,
-            tags,
-            content='credentials',
-            content_rowid='rowid'
-        );
-
-        -- Triggers to keep FTS index in sync
-        CREATE TRIGGER IF NOT EXISTS credentials_ai AFTER INSERT ON credentials BEGIN
-            INSERT INTO credentials_fts(rowid, name, username, url, tags)
-            VALUES (new.rowid, new.name, new.username, new.url, new.tags);
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS credentials_ad AFTER DELETE ON credentials BEGIN
-            INSERT INTO credentials_fts(credentials_fts, rowid, name, username, url, tags)
-            VALUES ('delete', old.rowid, old.name, old.username, old.url, old.tags);
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS credentials_au AFTER UPDATE ON credentials BEGIN
-            INSERT INTO credentials_fts(credentials_fts, rowid, name, username, url, tags)
-            VALUES ('delete', old.rowid, old.name, old.username, old.url, old.tags);
-            INSERT INTO credentials_fts(rowid, name, username, url, tags)
-            VALUES (new.rowid, new.name, new.username, new.url, new.tags);
-        END;
 
         -- Audit log table
         CREATE TABLE IF NOT EXISTS audit_log (
@@ -203,15 +214,124 @@ mod tests {
         assert_eq!(get_schema_version(&conn), SCHEMA_VERSION);
     }
 
+    /// A fresh database must not be born with the index the conversion
+    /// removes.
     #[test]
-    fn test_fts_index() {
+    fn new_databases_carry_no_fts_index() {
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
-        insert_test_fts_credential(&conn);
-        assert!(fts_search_found(&conn, "GitHub"));
+
+        assert!(fts_objects(&conn).is_empty());
     }
 
-    fn insert_test_fts_credential(conn: &Connection) {
+    /// The conversion has to be exercised against a database that actually
+    /// carries the index. Testing it against a fresh one would pass just as
+    /// well if the conversion did nothing at all.
+    #[test]
+    fn opening_a_v3_database_removes_the_fts_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_v3_schema(&conn);
+        assert!(
+            !fts_objects(&conn).is_empty(),
+            "the v3 fixture must carry the index the conversion removes"
+        );
+
+        init_schema(&conn).unwrap();
+
+        assert_eq!(fts_objects(&conn), Vec::<String>::new());
+        assert_eq!(get_schema_version(&conn), SCHEMA_VERSION);
+    }
+
+    /// Converting must not disturb the rows the index was built over.
+    #[test]
+    fn converting_a_v3_database_preserves_credentials() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_v3_schema(&conn);
+        insert_test_credential(&conn);
+
+        init_schema(&conn).unwrap();
+
+        let name: String = conn
+            .query_row("SELECT name FROM credentials WHERE id = 'test-1'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(name, "GitHub Token");
+    }
+
+    /// Writes must still work once the triggers that referenced the dropped
+    /// table are gone — a trigger left behind would fail on insert.
+    #[test]
+    fn a_converted_database_still_accepts_writes() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_v3_schema(&conn);
+        init_schema(&conn).unwrap();
+
+        insert_test_credential(&conn);
+
+        let count: i32 = conn
+            .query_row("SELECT COUNT(*) FROM credentials", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    /// The v3 schema: the current one plus the FTS5 index and the three
+    /// triggers that maintained it. Reproduced here because the code that
+    /// wrote it no longer exists.
+    fn create_v3_schema(conn: &Connection) {
+        init_schema(conn).unwrap();
+        conn.execute_batch(
+            r"
+            CREATE VIRTUAL TABLE credentials_fts USING fts5(
+                name,
+                username,
+                url,
+                tags,
+                content='credentials',
+                content_rowid='rowid'
+            );
+
+            CREATE TRIGGER credentials_ai AFTER INSERT ON credentials BEGIN
+                INSERT INTO credentials_fts(rowid, name, username, url, tags)
+                VALUES (new.rowid, new.name, new.username, new.url, new.tags);
+            END;
+
+            CREATE TRIGGER credentials_ad AFTER DELETE ON credentials BEGIN
+                INSERT INTO credentials_fts(credentials_fts, rowid, name, username, url, tags)
+                VALUES ('delete', old.rowid, old.name, old.username, old.url, old.tags);
+            END;
+
+            CREATE TRIGGER credentials_au AFTER UPDATE ON credentials BEGIN
+                INSERT INTO credentials_fts(credentials_fts, rowid, name, username, url, tags)
+                VALUES ('delete', old.rowid, old.name, old.username, old.url, old.tags);
+                INSERT INTO credentials_fts(rowid, name, username, url, tags)
+                VALUES (new.rowid, new.name, new.username, new.url, new.tags);
+            END;
+            ",
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE metadata SET value = ?1 WHERE key = 'schema_version'",
+            [SCHEMA_VERSION_WITH_FTS.to_string()],
+        )
+        .unwrap();
+    }
+
+    /// Every schema object the FTS index owns, including the shadow tables
+    /// `fts5` creates alongside it.
+    fn fts_objects(conn: &Connection) -> Vec<String> {
+        conn.prepare(
+            r"SELECT name FROM sqlite_master
+            WHERE name LIKE 'credentials_fts%'
+               OR name IN ('credentials_ai', 'credentials_ad', 'credentials_au')
+            ORDER BY name",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect()
+    }
+
+    fn insert_test_credential(conn: &Connection) {
         conn.execute(
             r"INSERT INTO credentials (id, name, credential_type, encrypted_secret, created_at, updated_at)
             VALUES ('test-1', 'GitHub Token', 'api_key', 'encrypted', datetime('now'), datetime('now'))",
@@ -219,10 +339,6 @@ mod tests {
         )
         .unwrap();
     }
-
-    fn fts_search_found(conn: &Connection, query: &str) -> bool {
-        let sql = "SELECT COUNT(*) > 0 FROM credentials_fts WHERE credentials_fts MATCH ?1";
-        conn.query_row(sql, [query], |row| row.get(0)).unwrap()
-    }
 }
+
 

@@ -79,18 +79,15 @@ random nonce followed by the ChaCha20-Poly1305 output
 
 Indexes on `credential_type` and `updated_at DESC`.
 
-### `credentials_fts`
+Search is not a database concern. `apply_search_filter`
+(`app/credentials_handler.rs`) matches a lowercased substring against
+`name`, `username`, `url` and `tags` in the already-fetched list, so it
+finds `hub` inside `GitHub` and narrows whatever the tag and type filters
+left rather than issuing a query that would discard them.
 
-An FTS5 external-content table over `credentials`, indexing `name`,
-`username`, `url` and `tags`.
-
-Three triggers keep it synchronised — `credentials_ai` after insert,
-`credentials_ad` after delete, `credentials_au` after update. The delete
-and update triggers issue FTS5 `'delete'` commands with the *old* row
-values, which external-content tables require to stay consistent.
-
-This table is why those four columns are plaintext. FTS5 cannot index
-ciphertext.
+Schema 3 and earlier also carried `credentials_fts`, an FTS5
+external-content table maintained by three triggers. No query read it;
+v4 drops it. See [format versions](#schema_version--table-structure).
 
 ### `audit_log`
 
@@ -130,6 +127,18 @@ is refused with `DbError::UnsupportedVersion`.
 The version is written from the `SCHEMA_VERSION` constant rather than
 inlined in the DDL, so bumping the constant cannot stamp new databases
 with a number their own check would reject.
+
+Current version: **4**.
+
+One conversion exists, from 3 to 4: `convert_v3_to_v4` (`db/schema.rs`)
+drops `credentials_fts` and its three triggers, then stamps 4. It runs
+before the version check, in a single transaction, so an interrupted
+conversion leaves a v3 database for the next attempt rather than a
+half-dropped index claiming to be v4.
+
+It is temporary. Once the vaults in use have been opened by this build it
+is removed, and a v3 database is then rejected outright like any other
+foreign version.
 
 ### `kdf_version` — key material
 

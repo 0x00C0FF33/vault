@@ -1,6 +1,6 @@
 //! Database Module
 //!
-//! `SQLite` database layer with FTS5 full-text search.
+//! `SQLite` persistence: connection handling, schema and queries.
 
 pub mod connection;
 pub mod models;

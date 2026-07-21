@@ -61,7 +61,7 @@ handling should not require touching anything under `ui/`.
 | `crypto/dek.rs` | DEK generation, wrapping, re-wrapping |
 | `crypto/encryption.rs` | ChaCha20-Poly1305 |
 | `crypto/mod.rs` | `LockedBuffer`, error types |
-| `db/schema.rs` | DDL, FTS triggers, migrations |
+| `db/schema.rs` | DDL, schema version, conversions between versions |
 | `db/queries.rs` | All SQL; parameterised without exception |
 | `db/models.rs` | Row types |
 

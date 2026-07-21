@@ -15,7 +15,7 @@ Self-hosted, local-first architecture - your credentials never touch our servers
 - **Strong Key Derivation:** Argon2id with 19 MiB memory cost
 - **Hierarchical Keys:** Master Key wraps DEK (Data Encryption Key), DEK encrypts credentials - enables password changes without re-encrypting data
     - **Password** → **Master key** → **DEK (wrapped)** → **Credential secrets**
-- **Full-Text Search:** SQLite FTS5 for fast search
+- **Substring Search:** Matches anywhere in name, username, URL or tags — and composes with the tag and type filters
 - **Search or filter by project/tag:** Organize your credentials and keys via tagging
 - **Vim Keybindings:** Modal editing with hjkl navigation
 - **TOTP Support:** Generate 2FA codes with countdown timer
