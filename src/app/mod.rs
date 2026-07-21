@@ -358,9 +358,7 @@ impl App {
         
         // Only update TOTP fields in the existing detail
         if let Some(ref mut detail) = self.selected_detail {
-            let (code, remaining) = credentials_handler::compute_totp(cred);
-            detail.totp_code = code;
-            detail.totp_remaining = remaining;
+            detail.totp = credentials_handler::compute_totp(cred);
         }
     }
 }

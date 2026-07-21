@@ -24,8 +24,22 @@ pub struct CredentialDetail {
     pub tags: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
-    pub totp_code: Option<String>,
-    pub totp_remaining: Option<u64>,
+    pub totp: TotpDisplay,
+}
+
+/// What the detail view shows in the TOTP row.
+///
+/// A code and its countdown are always known together, so they travel
+/// together rather than as two `Option`s a caller could pair wrongly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TotpDisplay {
+    /// The credential carries no TOTP secret.
+    Absent,
+    Code { code: String, seconds_remaining: u64 },
+    /// The stored secret could not be parsed or used. Shown in place of a
+    /// code so a broken entry is distinguishable from one that has none —
+    /// silently rendering nothing left the user with no way to tell.
+    Unavailable(String),
 }
 
 pub struct DetailView<'a> {
@@ -122,6 +136,12 @@ fn render_totp_field(buf: &mut Buffer, x: u16, y: &mut u16, width: u16, code: &s
     ]);
 }
 
+fn render_totp_error(buf: &mut Buffer, x: u16, y: &mut u16, width: u16, reason: &str) {
+    render_field(buf, x, y, width, "TOTP", &[
+        Span::styled(reason, Style::default().fg(Color::Red)),
+    ]);
+}
+
 fn render_url_field(buf: &mut Buffer, x: u16, y: &mut u16, width: u16, url: &str) {
     render_field(buf, x, y, width, "URL", &[
         Span::styled(url, Style::default().fg(Color::Blue)),
@@ -191,8 +211,14 @@ impl Widget for DetailView<'_> {
             render_secret_and_strength(buf, inner.x, &mut y, inner.width, secret, self.detail);
         }
 
-        if let (Some(code), Some(remaining)) = (&self.detail.totp_code, self.detail.totp_remaining) {
-            render_totp_field(buf, inner.x, &mut y, inner.width, code, remaining);
+        match &self.detail.totp {
+            TotpDisplay::Absent => {}
+            TotpDisplay::Code { code, seconds_remaining } => {
+                render_totp_field(buf, inner.x, &mut y, inner.width, code, *seconds_remaining);
+            }
+            TotpDisplay::Unavailable(reason) => {
+                render_totp_error(buf, inner.x, &mut y, inner.width, reason);
+            }
         }
 
         if let Some(ref url) = self.detail.url {

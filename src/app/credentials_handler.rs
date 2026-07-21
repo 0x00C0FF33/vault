@@ -7,6 +7,7 @@ use crate::ui::{
     components::{
         ExportDialog,
         CredentialDetail,
+        detail::TotpDisplay,
         CredentialForm,
         CredentialItem,
         MessageType,
@@ -450,7 +451,7 @@ pub fn credential_to_item(cred: &Credential) -> CredentialItem {
 }
 
 pub fn build_detail(cred: &DecryptedCredential, password_visible: bool) -> CredentialDetail {
-    let (totp_code, totp_remaining) = compute_totp(cred);
+    let totp = compute_totp(cred);
 
     CredentialDetail {
         name: cred.name.clone(),
@@ -463,26 +464,85 @@ pub fn build_detail(cred: &DecryptedCredential, password_visible: bool) -> Crede
         tags: cred.tags.clone(),
         created_at: cred.created_at.format("%d-%b-%Y %H:%M").to_string(),
         updated_at: cred.updated_at.format("%d-%b-%Y %H:%M").to_string(),
-        totp_code,
-        totp_remaining,
+        totp,
     }
 }
 
-pub fn compute_totp(cred: &DecryptedCredential) -> (Option<String>, Option<u64>) {
+pub fn compute_totp(cred: &DecryptedCredential) -> TotpDisplay {
     let Some(ref totp_input) = cred.totp_secret else {
-        return (None, None);
+        return TotpDisplay::Absent;
     };
 
-    let Ok(totp_secret) = TotpSecret::from_user_input(
-        totp_input.expose_secret(),
-        &cred.name,
-        "Vault"
-    ) else {
-        return (None, None);
+    let parsed = TotpSecret::from_user_input(totp_input.expose_secret(), &cred.name, "Vault");
+    let totp_secret = match parsed {
+        Ok(secret) => secret,
+        Err(e) => return TotpDisplay::Unavailable(e.to_string()),
     };
 
     match totp::generate_totp(&totp_secret) {
-        Ok(code) => (Some(code), Some(totp::time_remaining(&totp_secret))),
-        Err(_) => (None, None),
+        Ok(code) => TotpDisplay::Code {
+            code,
+            seconds_remaining: totp::time_remaining(&totp_secret),
+        },
+        Err(e) => TotpDisplay::Unavailable(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod totp_display_tests {
+    use super::*;
+    use chrono::Local;
+    use secrecy::SecretString;
+
+    fn credential_with_totp(totp: Option<&str>) -> DecryptedCredential {
+        DecryptedCredential {
+            id: "id".to_string(),
+            name: "Example".to_string(),
+            credential_type: CredentialType::Password,
+            username: None,
+            secret: None,
+            notes: None,
+            totp_secret: totp.map(SecretString::from),
+            url: None,
+            tags: Vec::new(),
+            created_at: Local::now(),
+            updated_at: Local::now(),
+        }
+    }
+
+    #[test]
+    fn a_credential_without_a_totp_secret_is_absent() {
+        assert_eq!(compute_totp(&credential_with_totp(None)), TotpDisplay::Absent);
+    }
+
+    #[test]
+    fn a_valid_secret_yields_a_code_and_countdown() {
+        let display = compute_totp(&credential_with_totp(Some("JBSWY3DPEHPK3PXP")));
+
+        let TotpDisplay::Code { code, seconds_remaining } = display else {
+            panic!("expected a code, got {display:?}");
+        };
+        assert_eq!(code.len(), 6);
+        assert!(code.chars().all(|c| c.is_ascii_digit()));
+        assert!((1..=30).contains(&seconds_remaining));
+    }
+
+    /// A broken secret previously rendered as nothing at all, which is what a
+    /// credential with no TOTP also renders as — leaving no way to tell a
+    /// misconfigured entry from one that was never configured.
+    #[test]
+    fn an_unparseable_secret_reports_why_instead_of_rendering_nothing() {
+        let display = compute_totp(&credential_with_totp(Some("not valid base32 !!!")));
+
+        assert_ne!(
+            display,
+            TotpDisplay::Absent,
+            "a broken secret must not look identical to having none"
+        );
+
+        let TotpDisplay::Unavailable(reason) = display else {
+            panic!("expected a reason, got {display:?}");
+        };
+        assert!(reason.contains("base32"), "reason should name the problem: {reason}");
     }
 }
