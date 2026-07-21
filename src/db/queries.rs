@@ -113,38 +113,6 @@ pub fn get_credentials_by_tag(conn: &Connection, tags: &[String]) -> DbResult<Ve
     Ok(credentials)
 }
 
-/// Search credentials using FTS5
-pub fn search_credentials(conn: &Connection, query: &str) -> DbResult<Vec<Credential>> {
-    // Escape special FTS5 characters
-    let escaped_query = query
-        .replace('"', "\"\"")
-        .replace(['*', ':'], "");
-
-    if escaped_query.trim().is_empty() {
-        return get_all_credentials(conn);
-    }
-
-    // Use prefix matching for better UX
-    let fts_query = format!("\"{escaped_query}\"*");
-
-    let mut stmt = conn.prepare(
-        r"
-        SELECT c.id, c.name, c.credential_type, c.username, c.encrypted_secret, c.encrypted_notes, c.encrypted_totp_secret, c.url, c.tags, c.created_at, c.updated_at, c.accessed_at
-        FROM credentials c
-        INNER JOIN credentials_fts fts ON c.rowid = fts.rowid
-        WHERE credentials_fts MATCH ?1
-        ORDER BY rank
-        ",
-    )?;
-
-    let credentials = stmt
-        .query_map([fts_query], row_to_credential)?
-        .filter_map(Result::ok)
-        .collect();
-
-    Ok(credentials)
-}
-
 /// Update a credential
 pub fn update_credential(conn: &Connection, credential: &Credential) -> DbResult<()> {
     let tags_json = serde_json::to_string(&credential.tags).unwrap_or_else(|_| "[]".to_string());
@@ -391,38 +359,6 @@ mod tests {
 
         delete_credential(conn, &cred.id).unwrap();
         assert!(get_credential(conn, &cred.id).is_err());
-    }
-
-    #[test]
-    fn test_fts_search() {
-        let db = Database::open_in_memory().unwrap();
-        let conn = db.conn();
-
-        let cred1 = Credential::new(
-            "AWS Production".to_string(),
-            CredentialType::ApiKey,
-            "enc".to_string(),
-        );
-        let cred2 = Credential::new(
-            "AWS Staging".to_string(),
-            CredentialType::ApiKey,
-            "enc".to_string(),
-        );
-        let cred3 = Credential::new(
-            "GitHub Token".to_string(),
-            CredentialType::ApiKey,
-            "enc".to_string(),
-        );
-
-        create_credential(conn, &cred1).unwrap();
-        create_credential(conn, &cred2).unwrap();
-        create_credential(conn, &cred3).unwrap();
-
-        let results = search_credentials(conn, "AWS").unwrap();
-        assert_eq!(results.len(), 2);
-
-        let results = search_credentials(conn, "GitHub").unwrap();
-        assert_eq!(results.len(), 1);
     }
 
     #[test]

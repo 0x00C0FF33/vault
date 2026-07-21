@@ -1,6 +1,7 @@
-//! Search Operations
+//! Credential Filtering
 //!
-//! Fast search and filtering of credentials.
+//! Fetching the credential list and narrowing it by tag or type. Text search
+//! is a substring match applied to the fetched list in `app/`.
 
 use crate::db::{self, Credential, CredentialType};
 
@@ -8,15 +9,6 @@ use super::VaultResult;
 
 pub fn get_all(conn: &rusqlite::Connection) -> VaultResult<Vec<Credential>> {
     db::get_all_credentials(conn).map_err(Into::into)
-}
-
-#[allow(dead_code)]
-pub fn search_credentials(conn: &rusqlite::Connection, query: &str) -> VaultResult<Vec<Credential>> {
-    let trimmed = query.trim();
-    if trimmed.is_empty() {
-        return get_all(conn);
-    }
-    db::search_credentials(conn, trimmed).map_err(Into::into)
 }
 
 pub fn filter_by_tags(conn: &rusqlite::Connection, tags: &[String]) -> VaultResult<Vec<Credential>> {
@@ -59,21 +51,6 @@ mod tests {
             let cred = create_test_credential(name, ctype, tags);
             db::create_credential(conn, &cred).unwrap();
         }
-    }
-
-    #[test]
-    fn test_search() {
-        let db = Database::open_in_memory().unwrap();
-        setup_test_data(db.conn());
-
-        let results = search_credentials(db.conn(), "AWS").unwrap();
-        assert_eq!(results.len(), 2);
-
-        let results = search_credentials(db.conn(), "GitHub").unwrap();
-        assert_eq!(results.len(), 1);
-
-        let results = search_credentials(db.conn(), "").unwrap();
-        assert_eq!(results.len(), 4);
     }
 
     #[test]
