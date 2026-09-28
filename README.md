@@ -116,7 +116,7 @@ Your vault lives at `~/.local/share/vault/vault.db` on Linux; see [docs/storage.
 | `T` | Copy TOTP code |
 | `Ctrl+t` | Copy TOTP secret |
 | `Ctrl+s` | Toggle password visibility |
-| `U` | Show/hide usernames in the list |
+| `U` | Show/hide usernames in the list (remembered) |
 | `Ctrl+p` | Change master key |
 | `Ctrl+l` | Clear message |
 | `i` | View logs |

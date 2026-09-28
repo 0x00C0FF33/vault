@@ -38,6 +38,7 @@ Key/value store for everything that is not a credential.
 | `audit_head` | Signed chain head: HMAC over the entry count and final entry HMAC. |
 | `pending_failed_unlocks` | Failed unlock count since last successful unlock. |
 | `last_failed_unlock_at` | Timestamp of the most recent failed unlock. |
+| `show_usernames` | `false` once usernames are hidden in the list (`U`); absent or `true` shows them. |
 
 A freshly created vault:
 

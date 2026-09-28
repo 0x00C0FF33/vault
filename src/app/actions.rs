@@ -158,6 +158,11 @@ impl App {
     fn toggle_username(&mut self) {
         let visible = !self.list_state.usernames_visible();
         self.list_state.set_usernames_visible(visible);
+
+        if let Err(e) = self.save_view_preferences() {
+            self.set_message(&format!("Usernames toggled, but not saved: {e}"), MessageType::Error);
+            return;
+        }
         let msg = if visible { "Usernames shown" } else { "Usernames hidden" };
         self.set_message(msg, MessageType::Info);
     }

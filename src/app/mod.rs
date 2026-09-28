@@ -7,6 +7,7 @@ mod clipboard;
 mod config;
 mod credentials_handler;
 mod input;
+mod preferences;
 
 use std::time::{Duration, Instant};
 
@@ -170,6 +171,7 @@ impl App {
         self.handle_failed_attempts()?;
         self.check_audit_integrity();
         self.log_audit(AuditAction::Unlock, None, None, None, None)?;
+        self.load_view_preferences()?;
         self.refresh_data()?;
         self.update_selected_detail()
     }
