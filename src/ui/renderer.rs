@@ -33,6 +33,7 @@ pub struct UiState<'a> {
     pub mode: InputMode,
     pub credentials: &'a [CredentialItem],
     pub list_state: &'a mut ListViewState,
+    pub scrolloff: usize,
     pub list_area: &'a mut Option<Rect>,
     pub selected_detail: Option<&'a CredentialDetail>,
     pub search_query: Option<&'a str>,
@@ -45,7 +46,7 @@ pub struct UiState<'a> {
     pub credential_form: Option<&'a CredentialForm>,
     pub help_state: &'a HelpState,
     pub logs_state: &'a LogsState,
-    pub tags_state: &'a TagsState,
+    pub tags_state: &'a mut TagsState,
     pub export_dialog: Option<&'a ExportDialog>,
 }
 
@@ -143,7 +144,7 @@ fn render_list(frame: &mut Frame, area: Rect, state: &mut UiState) {
     let block = create_credentials_block(Color::Magenta);
     let list = CredentialList::new(state.credentials)
         .show_username(state.list_state.usernames_visible())
-        .scrolloff(state.list_state.scrolloff())
+        .scrolloff(state.scrolloff)
         .block(block);
     frame.render_stateful_widget(list, area, state.list_state);
 }
@@ -165,7 +166,7 @@ fn render_detail_list(frame: &mut Frame, area: Rect, state: &mut UiState) {
     let block = create_credentials_block(Color::DarkGray);
     let list = CredentialList::new(state.credentials)
         .show_username(state.list_state.usernames_visible())
-        .scrolloff(state.list_state.scrolloff())
+        .scrolloff(state.scrolloff)
         .block(block);
     frame.render_stateful_widget(list, area, state.list_state);
 }
@@ -214,7 +215,7 @@ fn create_fallback_form_block() -> Block<'static> {
         .border_style(Style::default().fg(Color::Green))
 }
 
-fn render_overlays(frame: &mut Frame, area: Rect, state: &UiState) {
+fn render_overlays(frame: &mut Frame, area: Rect, state: &mut UiState) {
     if render_help_overlay(frame, area, state) {
         return;
     }
@@ -238,11 +239,11 @@ fn render_help_overlay(frame: &mut Frame, area: Rect, state: &UiState) -> bool {
     true
 }
 
-fn render_tags_overlay(frame: &mut Frame, state: &UiState) {
+fn render_tags_overlay(frame: &mut Frame, state: &mut UiState) {
     if state.mode != InputMode::Tags {
         return;
     }
-    TagsPopup::new(state.tags_state).render(frame.area(), frame.buffer_mut());
+    frame.render_stateful_widget(TagsPopup::new(state.scrolloff), frame.area(), state.tags_state);
 }
 
 fn render_logs_overlay(frame: &mut Frame, state: &UiState) {

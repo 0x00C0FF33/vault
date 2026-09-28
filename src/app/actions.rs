@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::db::AuditAction;
 use crate::input::keymap::{parse_command, Action};
-use crate::ui::components::list::MAX_SCROLLOFF;
+use crate::ui::components::scroll::MAX_SCROLLOFF;
 use crate::ui::{components::MessageType, renderer::View};
 
 use super::config::PendingAction;
@@ -174,7 +174,7 @@ impl App {
             self.set_message(&format!("scrolloff must be at most {MAX_SCROLLOFF}"), MessageType::Error);
             return;
         }
-        self.list_state.set_scrolloff(lines);
+        self.scrolloff = lines;
 
         if let Err(e) = self.save_scrolloff() {
             self.set_message(&format!("scrolloff={lines}, but not saved: {e}"), MessageType::Error);

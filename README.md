@@ -141,7 +141,7 @@ Your vault lives at `~/.local/share/vault/vault.db` on Linux; see [docs/storage.
 - `:log` - View logs
 - `:tag` - View existing tags
 - `:type <name>` - Filter by credential type; bare `:type` clears it
-- `:set so=<n>` - Keep `n` rows visible above and below the cursor (vim's `scrolloff`; default 5, `0` turns it off, remembered)
+- `:set so=<n>` - Keep `n` rows visible above and below the cursor in the credential list and tags popup (vim's `scrolloff`; default 5, `0` turns it off, remembered)
 - `:export` - Export credentials with options
 - `:help` - Show help
 

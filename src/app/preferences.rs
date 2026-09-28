@@ -5,7 +5,7 @@
 //! one keeps following the built-in default if that default ever changes.
 
 use crate::db;
-use crate::ui::components::list::DEFAULT_SCROLLOFF;
+use crate::ui::components::scroll::{DEFAULT_SCROLLOFF, MAX_SCROLLOFF};
 
 use super::App;
 
@@ -24,7 +24,7 @@ impl App {
             .unwrap_or(DEFAULT_SCROLLOFF);
 
         self.list_state.set_usernames_visible(visible);
-        self.list_state.set_scrolloff(scrolloff);
+        self.scrolloff = scrolloff.min(MAX_SCROLLOFF);
         Ok(())
     }
 
@@ -34,7 +34,7 @@ impl App {
     }
 
     pub(super) fn save_scrolloff(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let lines = self.list_state.scrolloff().to_string();
+        let lines = self.scrolloff.to_string();
         self.store_preference(META_SCROLLOFF, &lines)
     }
 
@@ -93,7 +93,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut app = app_at(&dir);
         app.initialize(PASSWORD).unwrap();
-        assert_eq!(app.list_state.scrolloff(), 5);
+        assert_eq!(app.scrolloff, 5);
     }
 
     #[test]
@@ -104,7 +104,7 @@ mod tests {
         first.execute_action(Action::SetScrolloff(2)).unwrap();
         drop(first);
 
-        assert_eq!(relaunch(&dir).list_state.scrolloff(), 2);
+        assert_eq!(relaunch(&dir).scrolloff, 2);
     }
 
     #[test]
@@ -125,9 +125,9 @@ mod tests {
         first.initialize(PASSWORD).unwrap();
         first.execute_action(Action::SetScrolloff(3)).unwrap();
         first.execute_action(Action::SetScrolloff(1000)).unwrap();
-        assert_eq!(first.list_state.scrolloff(), 3);
+        assert_eq!(first.scrolloff, 3);
         drop(first);
 
-        assert_eq!(relaunch(&dir).list_state.scrolloff(), 3);
+        assert_eq!(relaunch(&dir).scrolloff, 3);
     }
 }

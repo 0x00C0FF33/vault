@@ -6,7 +6,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier, Style},
-    widgets::{Clear, Widget},
+    widgets::{Clear, StatefulWidget, Widget},
 };
 
 use crate::db::Credential;
@@ -15,7 +15,7 @@ use super::layout::{
     centered_rect_fixed, create_popup_block, highlight_row, render_empty_message,
     render_separator_line, truncate_with_ellipsis,
 };
-use super::scroll::{render_v_scroll_indicator, ScrollState};
+use super::scroll::{render_v_scroll_indicator, ScrollState, Viewport};
 
 #[derive(Default)]
 pub struct TagsState {
@@ -96,13 +96,16 @@ fn aggregate_tags(credentials: &[Credential]) -> Vec<(String, usize)> {
     tags
 }
 
-pub struct TagsPopup<'a> {
-    state: &'a TagsState,
+/// Draws the popup and keeps its scroll position, stored in
+/// `TagsState::scroll`, `scrolloff` rows clear of the cursor. The position is
+/// settled while drawing because only then is the popup's height known.
+pub struct TagsPopup {
+    scrolloff: usize,
 }
 
-impl<'a> TagsPopup<'a> {
-    pub fn new(state: &'a TagsState) -> Self {
-        Self { state }
+impl TagsPopup {
+    pub fn new(scrolloff: usize) -> Self {
+        Self { scrolloff }
     }
 
     pub fn visible_height(area: Rect) -> u16 {
@@ -111,9 +114,11 @@ impl<'a> TagsPopup<'a> {
     }
 }
 
-impl Widget for TagsPopup<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let height = calculate_tags_height(self.state.tags.len(), area.height);
+impl StatefulWidget for TagsPopup {
+    type State = TagsState;
+
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut TagsState) {
+        let height = calculate_tags_height(state.tags.len(), area.height);
         let popup = centered_rect_fixed(55, height, area, true);
         Clear.render(popup, buf);
 
@@ -121,7 +126,7 @@ impl Widget for TagsPopup<'_> {
         let inner = block.inner(popup);
         block.render(popup, buf);
 
-        if self.state.tags.is_empty() {
+        if state.tags.is_empty() {
             render_empty_message(inner, buf, "No tags found");
             return;
         }
@@ -129,7 +134,7 @@ impl Widget for TagsPopup<'_> {
         // Header takes 2 rows (header + separator)
         let header_height = 2u16;
         let list_area_height = inner.height.saturating_sub(header_height) as usize;
-        let max_v = self.state.tags.len().saturating_sub(list_area_height);
+        let max_v = state.tags.len().saturating_sub(list_area_height);
         let can_scroll_vertically = max_v > 0;
 
         // Render header (always at top)
@@ -139,10 +144,11 @@ impl Widget for TagsPopup<'_> {
         // Calculate list area that reserves bottom line for scroll indicator
         let list_start_y = inner.y + header_height;
 
-        // Calculate list area that reserves bottom line for scroll indicator
-        let scroll_offset = calculate_scroll_offset(self.state.selected, list_area_height);
+        let viewport = Viewport { offset: state.scroll.v_scroll, height: list_area_height, len: state.tags.len() };
+        let scroll_offset = viewport.follow(state.selected, self.scrolloff);
+        state.scroll.v_scroll = scroll_offset;
 
-        render_tags_list(inner, buf, list_start_y, list_area_height, scroll_offset, self.state);
+        render_tags_list(inner, buf, list_start_y, list_area_height, scroll_offset, state);
 
         // Render scroll indicator
         if can_scroll_vertically {
@@ -179,10 +185,6 @@ fn render_tags_list(
         }
         render_tag_row(inner, buf, start_y + row as u16, i, tag, *count, state);
     }
-}
-
-fn calculate_scroll_offset(selected: usize, visible: usize) -> usize {
-    if selected >= visible { selected - visible + 1 } else { 0 }
 }
 
 fn render_tag_row(
@@ -225,4 +227,65 @@ fn render_tag_count(buf: &mut Buffer, x: u16, y: u16, count: usize, highlight: b
     let style = Style::default().fg(Color::Cyan);
     let style = if highlight { style.bg(Color::DarkGray) } else { style };
     buf.set_string(x, y, format!("{count:>5}"), style);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 30 tags on a 60x30 screen: the popup's list area is 18 rows (21 asked
+    /// for, rounded up to centre evenly, less border and header).
+    fn thirty_tags() -> TagsState {
+        let tags = (0..30).map(|i| (format!("tag{i:02}"), 1)).collect();
+        TagsState { tags, ..TagsState::default() }
+    }
+
+    fn draw(state: &mut TagsState, scrolloff: usize) {
+        let area = Rect::new(0, 0, 60, 30);
+        TagsPopup::new(scrolloff).render(area, &mut Buffer::empty(area), state);
+    }
+
+    fn press(state: &mut TagsState, scrolloff: usize, times: usize, key: fn(&mut TagsState)) {
+        for _ in 0..times {
+            key(state);
+            draw(state, scrolloff);
+        }
+    }
+
+    /// Row of the cursor within the list area.
+    fn cursor_row(state: &TagsState) -> usize {
+        state.selected - state.scroll.v_scroll
+    }
+
+    #[test]
+    fn scrolling_down_keeps_scrolloff_rows_below_the_cursor() {
+        let mut state = thirty_tags();
+        press(&mut state, 5, 20, TagsState::scroll_down);
+        assert_eq!(cursor_row(&state), 12);
+    }
+
+    /// The popup used to derive its offset from the cursor alone, which
+    /// pinned the cursor to the bottom row while moving back up.
+    #[test]
+    fn scrolling_up_keeps_scrolloff_rows_above_the_cursor() {
+        let mut state = thirty_tags();
+        press(&mut state, 5, 1, TagsState::end);
+        press(&mut state, 5, 20, TagsState::scroll_up);
+        assert_eq!(cursor_row(&state), 5);
+    }
+
+    #[test]
+    fn scrolloff_zero_lets_the_cursor_reach_the_edge() {
+        let mut state = thirty_tags();
+        press(&mut state, 0, 20, TagsState::scroll_down);
+        assert_eq!(cursor_row(&state), 17);
+    }
+
+    #[test]
+    fn reopening_starts_from_the_top() {
+        let mut state = thirty_tags();
+        press(&mut state, 5, 20, TagsState::scroll_down);
+        state.set_tags_from_credentials(&[], None);
+        assert_eq!(state.scroll.v_scroll, 0);
+    }
 }

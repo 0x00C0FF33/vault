@@ -20,6 +20,7 @@ use crate::input::modes::ModeState;
 use crate::input::keymap::{mouse_action, Action};
 use crate::ui::components::help::HelpState;
 use crate::ui::components::logs::LogsState;
+use crate::ui::components::scroll::DEFAULT_SCROLLOFF;
 use crate::ui::components::tags::TagsState;
 use crate::ui::components::{
     CredentialDetail, CredentialForm, CredentialItem, 
@@ -59,6 +60,8 @@ pub struct App {
     pub pending_action: Option<PendingAction>,
     pub password_visible: bool,
     pub password_hide_at: Option<Instant>,
+    /// Rows kept around the cursor in every view that has one.
+    pub scrolloff: usize,
     pub last_totp_tick: Instant,
     pub should_quit: bool,
     pub credential_form: Option<CredentialForm>,
@@ -93,6 +96,7 @@ impl App {
             pending_action: None,
             password_visible: false,
             password_hide_at: None,
+            scrolloff: DEFAULT_SCROLLOFF,
             last_totp_tick: Instant::now(),
             should_quit: false,
             credential_form: None,
@@ -293,6 +297,7 @@ impl App {
             mode: self.mode_state.mode,
             credentials: &self.credential_items,
             list_state: &mut self.list_state,
+            scrolloff: self.scrolloff,
             list_area: &mut self.list_area,
             selected_detail: self.selected_detail.as_ref(),
             search_query: self.search_query.as_deref(),
@@ -305,7 +310,7 @@ impl App {
             credential_form: self.credential_form.as_ref(),
             help_state: &self.help_state,
             logs_state: &self.logs_state,
-            tags_state: &self.tags_state,
+            tags_state: &mut self.tags_state,
             export_dialog: self.export_dialog.as_ref(),
         };
 

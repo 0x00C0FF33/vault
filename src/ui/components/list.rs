@@ -21,18 +21,11 @@ pub struct CredentialItem {
     pub credential_type: CredentialType,
 }
 
-/// Rows kept visible above and below the cursor, as vim's `scrolloff`.
-pub const DEFAULT_SCROLLOFF: usize = 5;
-/// vim's conventional "always centre" value. Anything larger behaves the same
-/// and only costs ratatui more work shrinking the padding to fit.
-pub const MAX_SCROLLOFF: usize = 999;
-
 #[derive(Debug, Clone)]
 pub struct ListViewState {
     pub selected: Option<usize>,
     pub total: usize,
     usernames_visible: bool,
-    scrolloff: usize,
     list_state: ListState,
 }
 
@@ -42,7 +35,6 @@ impl Default for ListViewState {
             selected: None,
             total: 0,
             usernames_visible: true,
-            scrolloff: DEFAULT_SCROLLOFF,
             list_state: ListState::default(),
         }
     }
@@ -128,14 +120,6 @@ impl ListViewState {
 
     pub fn set_usernames_visible(&mut self, visible: bool) {
         self.usernames_visible = visible;
-    }
-
-    pub fn scrolloff(&self) -> usize {
-        self.scrolloff
-    }
-
-    pub fn set_scrolloff(&mut self, lines: usize) {
-        self.scrolloff = lines.min(MAX_SCROLLOFF);
     }
 
     pub fn list_state_mut(&mut self) -> &mut ListState {
