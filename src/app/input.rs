@@ -115,6 +115,11 @@ impl App {
             return self.submit_form();
         }
 
+        if key.code == KeyCode::Char('g') && key.modifiers == KeyModifiers::CONTROL {
+            self.generate_secret_in_form()?;
+            return Ok(false);
+        }
+
         let form = self.credential_form.as_mut().unwrap();
         dispatch_form_key(form, key.code, key.modifiers, self.terminal_size.height);
         Ok(false)

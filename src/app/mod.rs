@@ -333,8 +333,13 @@ impl App {
     }
 
     pub fn check_password_timeout(&mut self) {
+        let now = Instant::now();
+        if let Some(form) = self.credential_form.as_mut() {
+            form.hide_secret_if_due(now);
+        }
+
         let Some(hide_at) = self.password_hide_at else { return };
-        if Instant::now() < hide_at {
+        if now < hide_at {
             return;
         }
         self.password_visible = false;

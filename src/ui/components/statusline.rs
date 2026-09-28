@@ -229,11 +229,14 @@ fn hints_for_mode(mode: InputMode) -> Vec<(&'static str, &'static str)> {
             (":", "command"),
             ("?", "help"),
         ],
+        // Saving comes first after cancel so a narrow terminal cuts the
+        // least important hints; the whole bar fits 80 columns.
         InputMode::Insert => vec![
             ("esc", "cancel"),
-            ("tab/shift+tab", "next/prev field"),
-            ("ctrl+s", "show pwd"),
             ("enter", "save"),
+            ("tab/shift+tab", "field"),
+            ("ctrl+s", "show pwd"),
+            ("ctrl+g", "gen pwd"),
         ],
         InputMode::Command | InputMode::Search => vec![
             ("Esc", "cancel"),
@@ -286,5 +289,19 @@ impl Widget for HelpBar<'_> {
         let spans = build_hint_spans(&self.hints);
         let line = Line::from(spans);
         buf.set_line(area.x, area.y, &line, area.width);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn form_hints_fit_an_80_column_terminal() {
+        let width: usize = build_hint_spans(&hints_for_mode(InputMode::Insert))
+            .iter()
+            .map(Span::width)
+            .sum();
+        assert!(width <= 80, "form help bar is {width} columns");
     }
 }

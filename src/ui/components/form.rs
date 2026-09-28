@@ -2,6 +2,8 @@
 //!
 //! Multi-field form for creating and editing credentials.
 
+use std::time::Instant;
+
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -88,6 +90,9 @@ pub struct CredentialForm {
     pub credential_type: CredentialType,
     pub editing_id: Option<String>,
     pub show_password: bool,
+    /// When a generated secret shown by `fill_generated_secret` is hidden
+    /// again. `None` while the secret is hidden or was shown by hand.
+    secret_hide_at: Option<Instant>,
     pub scroll_offset: usize,
     pub multiline_scroll: usize,
     pub previous_view: View,
@@ -212,6 +217,7 @@ impl CredentialForm {
             credential_type: CredentialType::Password,
             editing_id: None,
             show_password: false,
+            secret_hide_at: None,
             scroll_offset: 0,
             multiline_scroll: 0,
             previous_view: View::List,
@@ -342,8 +348,31 @@ impl CredentialForm {
         self.apply_type_rules();
     }
 
+    /// Taking manual control cancels the timed hide of a generated secret.
     pub fn toggle_password_visibility(&mut self) {
         self.show_password = !self.show_password;
+        self.secret_hide_at = None;
+    }
+
+    /// Replace the secret with a generated one and show it until `hide_at`,
+    /// so it can be checked before saving without staying on screen.
+    pub fn fill_generated_secret(&mut self, secret: String, hide_at: Instant) {
+        self.set(Field::Secret, secret);
+        if self.active_field == Field::Secret.index() {
+            self.cursor = self.get(Field::Secret).len();
+        }
+        self.show_password = true;
+        self.secret_hide_at = Some(hide_at);
+    }
+
+    /// Hide a secret shown by `fill_generated_secret` once its time is up.
+    pub fn hide_secret_if_due(&mut self, now: Instant) {
+        let Some(hide_at) = self.secret_hide_at else { return };
+        if now < hide_at {
+            return;
+        }
+        self.show_password = false;
+        self.secret_hide_at = None;
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -715,7 +744,58 @@ impl Widget for CredentialFormWidget<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+
+    fn form_with_generated_secret(shown_at: Instant) -> CredentialForm {
+        let mut form = CredentialForm::new();
+        form.fill_generated_secret("g3n3rated".to_string(), shown_at + Duration::from_secs(5));
+        form
+    }
+
+    #[test]
+    fn a_generated_secret_replaces_the_old_one_and_is_shown() {
+        let mut form = CredentialForm::for_edit(edit_params());
+        form.fill_generated_secret("g3n3rated".to_string(), Instant::now());
+        assert_eq!(form.get_secret(), "g3n3rated");
+        assert!(form.show_password);
+    }
+
+    #[test]
+    fn a_generated_secret_hides_once_its_time_is_up() {
+        let shown_at = Instant::now();
+        let mut form = form_with_generated_secret(shown_at);
+
+        form.hide_secret_if_due(shown_at + Duration::from_secs(4));
+        assert!(form.show_password, "hidden before the timeout");
+
+        form.hide_secret_if_due(shown_at + Duration::from_secs(5));
+        assert!(!form.show_password);
+    }
+
+    /// Ctrl+s during the reveal hides the secret at once; showing it again
+    /// by hand is the user's choice and must not be cut short by the old timer.
+    #[test]
+    fn toggling_by_hand_cancels_the_timed_hide() {
+        let shown_at = Instant::now();
+        let mut form = form_with_generated_secret(shown_at);
+
+        form.toggle_password_visibility();
+        assert!(!form.show_password);
+
+        form.toggle_password_visibility();
+        form.hide_secret_if_due(shown_at + Duration::from_secs(60));
+        assert!(form.show_password);
+    }
+
+    #[test]
+    fn filling_the_active_secret_field_moves_the_cursor_to_its_end() {
+        let mut form = CredentialForm::new();
+        form.active_field = Field::Secret.index();
+        form.fill_generated_secret("g3n3rated".to_string(), Instant::now());
+        assert_eq!(form.cursor, "g3n3rated".len());
+    }
 
     fn edit_params() -> EditFormParams {
         EditFormParams {

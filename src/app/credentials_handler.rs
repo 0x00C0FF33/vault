@@ -1,5 +1,6 @@
 use secrecy::ExposeSecret;
 use std::path::Path;
+use std::time::Instant;
 
 use crate::crypto::{totp::{self, TotpSecret}, decrypt_string};
 use crate::db::{models::{Credential, CredentialType}, AuditAction};
@@ -320,12 +321,24 @@ impl App {
     }
 
     pub fn generate_and_copy_password(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let password = crate::crypto::generate_password(&crate::crypto::PasswordPolicy::default())?;
+        let password = generate_secret()?;
         super::clipboard::copy_with_timeout(&password, self.config.clipboard_timeout);
         self.set_message(
             &format!("Generated: {} (copied for {}s)", password, self.config.clipboard_timeout.as_secs()),
             MessageType::Success,
         );
+        Ok(())
+    }
+
+    /// Fill the open form's secret with a generated password, shown for the
+    /// same time `Ctrl+s` reveals a secret in the detail view.
+    pub fn generate_secret_in_form(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let password = generate_secret()?;
+        let timeout = self.config.password_visibility_timeout;
+        let Some(form) = self.credential_form.as_mut() else { return Ok(()) };
+
+        form.fill_generated_secret(password, Instant::now() + timeout);
+        self.set_message(&format!("Secret generated (hidden in {}s)", timeout.as_secs()), MessageType::Success);
         Ok(())
     }
 
@@ -448,6 +461,12 @@ pub fn credential_to_item(cred: &Credential) -> CredentialItem {
         username: cred.username.clone(),
         credential_type: cred.credential_type,
     }
+}
+
+/// The one policy behind every generated secret, so `:gen` and the form's
+/// Ctrl+g cannot drift apart.
+fn generate_secret() -> Result<String, Box<dyn std::error::Error>> {
+    Ok(crate::crypto::generate_password(&crate::crypto::PasswordPolicy::default())?)
 }
 
 pub fn build_detail(cred: &DecryptedCredential, password_visible: bool) -> CredentialDetail {
@@ -728,3 +747,98 @@ mod list_position_tests {
     }
 }
 
+
+#[cfg(test)]
+mod generate_in_form_tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use secrecy::ExposeSecret;
+    use tempfile::TempDir;
+
+    use crate::app::{App, AppConfig};
+    use crate::input::keymap::Action;
+
+    const PASSWORD: &str = "test_password";
+
+    fn unlocked_app(dir: &TempDir) -> App {
+        let mut app = App::new(AppConfig { vault_path: dir.path().join("vault.db"), ..AppConfig::default() });
+        app.initialize(PASSWORD).unwrap();
+        app
+    }
+
+    fn press(app: &mut App, code: KeyCode, mods: KeyModifiers) {
+        app.handle_key_event(KeyEvent::new(code, mods)).unwrap();
+    }
+
+    fn type_text(app: &mut App, text: &str) {
+        for c in text.chars() {
+            press(app, KeyCode::Char(c), KeyModifiers::NONE);
+        }
+    }
+
+    fn form_secret(app: &App) -> String {
+        app.credential_form.as_ref().unwrap().get_secret().to_string()
+    }
+
+    #[test]
+    fn ctrl_g_fills_and_shows_a_generated_secret_that_saves() {
+        let dir = TempDir::new().unwrap();
+        let mut app = unlocked_app(&dir);
+        app.execute_action(Action::New).unwrap();
+        type_text(&mut app, "github");
+
+        press(&mut app, KeyCode::Char('g'), KeyModifiers::CONTROL);
+        let generated = form_secret(&app);
+        assert_eq!(generated.len(), 20, "the default policy's length");
+        assert!(app.credential_form.as_ref().unwrap().show_password);
+
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        app.select_credential().unwrap();
+        let saved = app.selected_credential.as_ref().unwrap();
+        assert_eq!(saved.name, "github");
+        assert_eq!(saved.secret.as_ref().unwrap().expose_secret(), generated);
+    }
+
+    #[test]
+    fn the_app_hides_the_generated_secret_after_the_reveal_timeout() {
+        let dir = TempDir::new().unwrap();
+        let config = AppConfig {
+            vault_path: dir.path().join("vault.db"),
+            password_visibility_timeout: std::time::Duration::ZERO,
+            ..AppConfig::default()
+        };
+        let mut app = App::new(config);
+        app.initialize(PASSWORD).unwrap();
+        app.execute_action(Action::New).unwrap();
+        press(&mut app, KeyCode::Char('g'), KeyModifiers::CONTROL);
+
+        app.check_password_timeout();
+
+        assert!(!app.credential_form.as_ref().unwrap().show_password);
+    }
+
+    /// Save "github" / "old-secret" through the New form.
+    fn create_github(app: &mut App) {
+        app.execute_action(Action::New).unwrap();
+        type_text(app, "github");
+        for _ in 0..3 {
+            press(app, KeyCode::Tab, KeyModifiers::NONE);
+        }
+        type_text(app, "old-secret");
+        press(app, KeyCode::Enter, KeyModifiers::NONE);
+    }
+
+    #[test]
+    fn ctrl_g_replaces_the_secret_when_editing() {
+        let dir = TempDir::new().unwrap();
+        let mut app = unlocked_app(&dir);
+        create_github(&mut app);
+
+        app.execute_action(Action::Edit).unwrap();
+        assert_eq!(form_secret(&app), "old-secret");
+        press(&mut app, KeyCode::Char('g'), KeyModifiers::CONTROL);
+
+        let generated = form_secret(&app);
+        assert_ne!(generated, "old-secret");
+        assert_eq!(generated.len(), 20);
+    }
+}

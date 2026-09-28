@@ -131,6 +131,16 @@ Your vault lives at `~/.local/share/vault/vault.db` on Linux; see [docs/storage.
 | `?` | Help |
 | `q` | Quit |
 
+### New/Edit Credential Form
+| Key | Action |
+|-----|--------|
+| `Tab/Shift+Tab` or `↓/↑` | Next/previous field |
+| `Space` | Cycle credential type (on the Type field) |
+| `Ctrl+g` | Generate a secret into the Secret field; shown for 5s, then hidden |
+| `Ctrl+s` | Show/hide the secret |
+| `Enter` | Save |
+| `Esc` | Cancel |
+
 ### Commands
 - `:q` - Quit
 - `:new` - New credential
