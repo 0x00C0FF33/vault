@@ -26,6 +26,8 @@ pub struct CredentialItem {
 pub struct ListViewState {
     pub selected: Option<usize>,
     pub total: usize,
+    /// Stored inverted so the derived default shows usernames.
+    usernames_hidden: bool,
     list_state: ListState,
 }
 
@@ -101,6 +103,14 @@ impl ListViewState {
         self.select(Some(new_index));
     }
 
+    pub fn usernames_visible(&self) -> bool {
+        !self.usernames_hidden
+    }
+
+    pub fn set_usernames_visible(&mut self, visible: bool) {
+        self.usernames_hidden = !visible;
+    }
+
     pub fn list_state_mut(&mut self) -> &mut ListState {
         &mut self.list_state
     }
@@ -136,6 +146,11 @@ impl<'a> CredentialList<'a> {
 
     pub fn block(mut self, block: Block<'a>) -> Self {
         self.block = Some(block);
+        self
+    }
+
+    pub fn show_username(mut self, show: bool) -> Self {
+        self.show_username = show;
         self
     }
 }
@@ -301,6 +316,53 @@ mod tests {
 
         state.move_to_top();
         assert_eq!(state.selected(), Some(0));
+    }
+
+    fn render_row(list: CredentialList) -> String {
+        let area = Rect::new(0, 0, 40, 1);
+        let mut buf = Buffer::empty(area);
+        let mut state = ListViewState::new();
+        state.set_total(1);
+        list.render(area, &mut buf, &mut state);
+        (0..area.width).map(|x| buf[(x, 0)].symbol()).collect()
+    }
+
+    fn sample_items() -> Vec<CredentialItem> {
+        vec![CredentialItem {
+            id: "1".to_string(),
+            name: "github".to_string(),
+            username: Some("me@example.com".to_string()),
+            credential_type: CredentialType::Password,
+        }]
+    }
+
+    #[test]
+    fn username_is_shown_by_default() {
+        let items = sample_items();
+        assert!(render_row(CredentialList::new(&items)).contains("(me@example.com)"));
+    }
+
+    #[test]
+    fn username_can_be_hidden() {
+        let items = sample_items();
+        let row = render_row(CredentialList::new(&items).show_username(false));
+        assert!(row.contains("github"));
+        assert!(!row.contains("me@example.com"));
+    }
+
+    #[test]
+    fn usernames_visibility_on_list_state() {
+        let mut state = ListViewState::new();
+        assert!(state.usernames_visible());
+
+        state.set_usernames_visible(false);
+        assert!(!state.usernames_visible());
+
+        state.set_total(3);
+        assert!(!state.usernames_visible(), "reloading the list must not reset the choice");
+
+        state.set_usernames_visible(true);
+        assert!(state.usernames_visible());
     }
 
     #[test]

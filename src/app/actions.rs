@@ -32,6 +32,7 @@ impl App {
             Action::CopyTotp => self.copy_totp()?,
             Action::CopyTotpUri => self.copy_totp_uri()?,
             Action::TogglePasswordVisibility => self.toggle_password()?,
+            Action::ToggleUsernameVisibility => self.toggle_username(),
 
             Action::Delete => self.initiate_delete(),
             Action::New => self.new_credential(),
@@ -152,6 +153,13 @@ impl App {
             self.log_audit(AuditAction::Read, Some(&id), Some(&name), username.as_deref(), Some("Toggle Password Visibility"))?;
         }
         Ok(())
+    }
+
+    fn toggle_username(&mut self) {
+        let visible = !self.list_state.usernames_visible();
+        self.list_state.set_usernames_visible(visible);
+        let msg = if visible { "Usernames shown" } else { "Usernames hidden" };
+        self.set_message(msg, MessageType::Info);
     }
 
     fn initiate_delete(&mut self) {

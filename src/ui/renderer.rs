@@ -141,7 +141,9 @@ fn render_list(frame: &mut Frame, area: Rect, state: &mut UiState) {
     }
 
     let block = create_credentials_block(Color::Magenta);
-    let list = CredentialList::new(state.credentials).block(block);
+    let list = CredentialList::new(state.credentials)
+        .show_username(state.list_state.usernames_visible())
+        .block(block);
     frame.render_stateful_widget(list, area, state.list_state);
 }
 
@@ -160,7 +162,9 @@ fn render_detail_list(frame: &mut Frame, area: Rect, state: &mut UiState) {
     *state.list_area = Some(area);
 
     let block = create_credentials_block(Color::DarkGray);
-    let list = CredentialList::new(state.credentials).block(block);
+    let list = CredentialList::new(state.credentials)
+        .show_username(state.list_state.usernames_visible())
+        .block(block);
     frame.render_stateful_widget(list, area, state.list_state);
 }
 

@@ -41,6 +41,7 @@ pub enum Action {
 
     // View
     TogglePasswordVisibility,
+    ToggleUsernameVisibility,
     
     // Mode changes
     EnterCommand,
@@ -134,6 +135,7 @@ pub fn normal_mode_action(key: KeyEvent, pending: Option<char>) -> (Action, Opti
 
         // View
         (KeyCode::Char('s'), KeyModifiers::CONTROL, _) => (Action::TogglePasswordVisibility, None),
+        (KeyCode::Char('U'), KeyModifiers::SHIFT, _) => (Action::ToggleUsernameVisibility, None),
 
         // Mode changes
         (KeyCode::Char(':'), KeyModifiers::NONE | KeyModifiers::SHIFT, _) => (Action::EnterCommand, None),
@@ -362,6 +364,18 @@ mod tests {
     fn test_normal_mode_j() {
         let (action, _) = normal_mode_action(key(KeyCode::Char('j')), None);
         assert_eq!(action, Action::MoveDown);
+    }
+
+    #[test]
+    fn shift_u_toggles_username_visibility() {
+        let (action, pending) = normal_mode_action(KeyEvent::new(KeyCode::Char('U'), KeyModifiers::SHIFT), None);
+        assert_eq!(action, Action::ToggleUsernameVisibility);
+        assert_eq!(pending, None);
+    }
+
+    #[test]
+    fn plain_u_still_copies_username() {
+        assert_eq!(normal_mode_action(key(KeyCode::Char('u')), None).0, Action::CopyUsername);
     }
 
     #[test]
