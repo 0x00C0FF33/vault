@@ -8,9 +8,9 @@ use super::{DbError, DbResult};
 
 /// Table structure this build reads and writes.
 ///
-/// A database carrying any other version is refused rather than adapted;
-/// conversion between structures is added when a structure change is, and
-/// removed once no database needs it.
+/// A database carrying any other version is refused rather than adapted.
+/// A structure change ships with conversion code, kept for the rest of the
+/// major version; see docs/storage.md.
 pub const SCHEMA_VERSION: i32 = 4;
 
 /// Create the schema, or check that an existing one is readable.

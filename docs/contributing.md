@@ -104,9 +104,11 @@ carry extra requirements:
    `finish_non_exhaustive()` pattern.
 6. **Changing derivation requires a version bump and a conversion path.**
    `kdf_version` and `audit_version` identify the schemes; see
-   [storage.md](storage.md#format-versions). Ship the conversion, let
-   users migrate, then remove it — and make the post-removal build reject
-   old vaults with `UnsupportedFormat` rather than misreading them.
+   [storage.md](storage.md#format-versions). Ship the conversion and keep
+   it for the rest of the major version (see
+   [storage.md](storage.md#compatibility-within-a-major-version)). Remove it
+   only in a major release, and make that build reject old vaults with
+   `UnsupportedFormat` rather than misreading them.
 
 Read [security.md](security.md) before changing anything in this area.
 

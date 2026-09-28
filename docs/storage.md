@@ -144,6 +144,14 @@ Checked at unlock (`vault/manager.rs`). Version 2 is the scheme in
 Checked at unlock (`vault/audit.rs`). Version 2 is the hash chain
 described in [security.md](security.md#audit-trail).
 
+### Compatibility within a major version
+
+From 1.0.0, every 1.x release opens a vault written by any earlier 1.x
+release. A change to any of the three formats ships with conversion code
+that upgrades the vault when it is opened, and that code stays for the
+rest of 1.x. Dropping it, or changing the export format below
+incompatibly, needs a major release.
+
 ### Vaults this build cannot open
 
 All three checks are strict: a vault whose `schema_version`,
@@ -152,7 +160,7 @@ All three checks are strict: a vault whose `schema_version`,
 for the others — rather than being read on a guess. Each error names the
 version found and the version expected.
 
-Conversion code for earlier layouts was removed once no such vault
+Conversion code for pre-1.0 layouts was removed once no such vault
 remained. It is still in the git history, so recovering an old vault
 means building a revision that had it, opening the vault once to convert
 it, and returning to the current build. Version markers are kept
