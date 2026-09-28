@@ -756,6 +756,7 @@ mod generate_in_form_tests {
 
     use crate::app::{App, AppConfig};
     use crate::input::keymap::Action;
+    use crate::input::InputMode;
 
     const PASSWORD: &str = "test_password";
 
@@ -825,6 +826,85 @@ mod generate_in_form_tests {
         }
         type_text(app, "old-secret");
         press(app, KeyCode::Enter, KeyModifiers::NONE);
+    }
+
+    fn saved_secret(app: &mut App) -> String {
+        app.update_selected_detail().unwrap();
+        let saved = app.selected_credential.as_ref().unwrap();
+        saved.secret.as_ref().unwrap().expose_secret().to_string()
+    }
+
+    fn confirm_message(app: &App) -> Option<&'static str> {
+        app.pending_action.as_ref().map(crate::app::config::PendingAction::confirm_message)
+    }
+
+    #[test]
+    fn saving_a_generated_secret_over_a_saved_one_asks_first() {
+        let dir = TempDir::new().unwrap();
+        let mut app = unlocked_app(&dir);
+        create_github(&mut app);
+        app.execute_action(Action::Edit).unwrap();
+        press(&mut app, KeyCode::Char('g'), KeyModifiers::CONTROL);
+        let generated = form_secret(&app);
+
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.mode_state.mode, InputMode::Confirm);
+        assert_eq!(confirm_message(&app), Some("Secret was generated. Overwrite the old one?"));
+
+        press(&mut app, KeyCode::Char('y'), KeyModifiers::NONE);
+        assert_eq!(app.mode_state.mode, InputMode::Normal);
+        assert_eq!(saved_secret(&mut app), generated);
+    }
+
+    #[test]
+    fn declining_returns_to_the_form_with_the_edit_kept() {
+        for decline in [KeyCode::Char('n'), KeyCode::Esc] {
+            let dir = TempDir::new().unwrap();
+            let mut app = unlocked_app(&dir);
+            create_github(&mut app);
+            app.execute_action(Action::Edit).unwrap();
+            press(&mut app, KeyCode::Char('g'), KeyModifiers::CONTROL);
+            let generated = form_secret(&app);
+
+            press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+            press(&mut app, decline, KeyModifiers::NONE);
+
+            assert_eq!(app.mode_state.mode, InputMode::Insert, "{decline:?}");
+            assert_eq!(form_secret(&app), generated, "{decline:?}");
+            assert_eq!(saved_secret(&mut app), "old-secret", "{decline:?}");
+        }
+    }
+
+    #[test]
+    fn a_typed_secret_change_asks_too() {
+        let dir = TempDir::new().unwrap();
+        let mut app = unlocked_app(&dir);
+        create_github(&mut app);
+        app.execute_action(Action::Edit).unwrap();
+        for _ in 0..3 {
+            press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        }
+        type_text(&mut app, "!");
+
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(confirm_message(&app), Some("Secret was changed. Overwrite the old one?"));
+    }
+
+    #[test]
+    fn an_edit_that_leaves_the_secret_alone_saves_without_asking() {
+        let dir = TempDir::new().unwrap();
+        let mut app = unlocked_app(&dir);
+        create_github(&mut app);
+        app.execute_action(Action::Edit).unwrap();
+        press(&mut app, KeyCode::Char('e'), KeyModifiers::CONTROL);
+        type_text(&mut app, "-work");
+
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+
+        assert!(app.pending_action.is_none());
+        assert_eq!(app.mode_state.mode, InputMode::Normal);
+        app.update_selected_detail().unwrap();
+        assert_eq!(app.selected_credential.as_ref().unwrap().name, "github-work");
     }
 
     #[test]

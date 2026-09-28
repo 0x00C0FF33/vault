@@ -82,6 +82,15 @@ impl FormField {
     }
 }
 
+/// How an edited credential's secret differs from the saved one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretReplacement {
+    /// Still exactly what `Ctrl+g` produced.
+    Generated,
+    /// Typed, pasted, or a generated value edited afterwards.
+    Changed,
+}
+
 #[derive(Debug, Clone)]
 pub struct CredentialForm {
     pub fields: Vec<FormField>,
@@ -93,6 +102,10 @@ pub struct CredentialForm {
     /// When a generated secret shown by `fill_generated_secret` is hidden
     /// again. `None` while the secret is hidden or was shown by hand.
     secret_hide_at: Option<Instant>,
+    /// The saved secret when editing, to tell whether saving replaces it.
+    original_secret: Option<String>,
+    /// The last value `fill_generated_secret` wrote.
+    generated_secret: Option<String>,
     pub scroll_offset: usize,
     pub multiline_scroll: usize,
     pub previous_view: View,
@@ -218,6 +231,8 @@ impl CredentialForm {
             editing_id: None,
             show_password: false,
             secret_hide_at: None,
+            original_secret: None,
+            generated_secret: None,
             scroll_offset: 0,
             multiline_scroll: 0,
             previous_view: View::List,
@@ -232,6 +247,7 @@ impl CredentialForm {
 
         form.set(Field::Name, params.name);
         form.set(Field::Username, params.username.unwrap_or_default());
+        form.original_secret = Some(params.secret.clone());
         form.set(Field::Secret, params.secret);
         form.set(Field::Url, params.url.unwrap_or_default());
         form.set(Field::Tags, params.tags.join(" "));
@@ -357,12 +373,27 @@ impl CredentialForm {
     /// Replace the secret with a generated one and show it until `hide_at`,
     /// so it can be checked before saving without staying on screen.
     pub fn fill_generated_secret(&mut self, secret: String, hide_at: Instant) {
+        self.generated_secret = Some(secret.clone());
         self.set(Field::Secret, secret);
         if self.active_field == Field::Secret.index() {
             self.cursor = self.get(Field::Secret).len();
         }
         self.show_password = true;
         self.secret_hide_at = Some(hide_at);
+    }
+
+    /// Whether saving this edit would overwrite the stored secret, and how it
+    /// came to differ. `None` for a new credential or an unchanged secret.
+    pub fn secret_replacement(&self) -> Option<SecretReplacement> {
+        let original = self.original_secret.as_deref()?;
+        let current = self.get_secret();
+        if current == original {
+            return None;
+        }
+        if self.generated_secret.as_deref() == Some(current) {
+            return Some(SecretReplacement::Generated);
+        }
+        Some(SecretReplacement::Changed)
     }
 
     /// Hide a secret shown by `fill_generated_secret` once its time is up.
@@ -787,6 +818,60 @@ mod tests {
         form.toggle_password_visibility();
         form.hide_secret_if_due(shown_at + Duration::from_secs(60));
         assert!(form.show_password);
+    }
+
+    /// Edit form with the cursor at the end of the secret "hunter2".
+    fn editing_secret() -> CredentialForm {
+        let mut form = CredentialForm::for_edit(edit_params());
+        form.active_field = Field::Secret.index();
+        form.cursor = form.get_secret().len();
+        form
+    }
+
+    fn type_into(form: &mut CredentialForm, code: KeyCode) {
+        form.handle_text_key(code, KeyModifiers::NONE, 40);
+    }
+
+    #[test]
+    fn a_new_credential_never_replaces_a_secret() {
+        let mut form = CredentialForm::new();
+        form.fill_generated_secret("g3n3rated".to_string(), Instant::now());
+        assert_eq!(form.secret_replacement(), None);
+    }
+
+    #[test]
+    fn an_untouched_secret_is_not_a_replacement() {
+        assert_eq!(editing_secret().secret_replacement(), None);
+    }
+
+    #[test]
+    fn a_generated_secret_is_reported_as_generated() {
+        let mut form = editing_secret();
+        form.fill_generated_secret("g3n3rated".to_string(), Instant::now());
+        assert_eq!(form.secret_replacement(), Some(SecretReplacement::Generated));
+    }
+
+    #[test]
+    fn editing_a_generated_secret_makes_it_a_change() {
+        let mut form = editing_secret();
+        form.fill_generated_secret("g3n3rated".to_string(), Instant::now());
+        type_into(&mut form, KeyCode::Char('x'));
+        assert_eq!(form.secret_replacement(), Some(SecretReplacement::Changed));
+    }
+
+    #[test]
+    fn a_typed_secret_is_reported_as_changed() {
+        let mut form = editing_secret();
+        type_into(&mut form, KeyCode::Char('x'));
+        assert_eq!(form.secret_replacement(), Some(SecretReplacement::Changed));
+    }
+
+    #[test]
+    fn typing_the_secret_back_to_its_saved_value_is_not_a_replacement() {
+        let mut form = editing_secret();
+        type_into(&mut form, KeyCode::Char('x'));
+        type_into(&mut form, KeyCode::Backspace);
+        assert_eq!(form.secret_replacement(), None);
     }
 
     #[test]

@@ -9,6 +9,7 @@ use crate::ui::{
     components::{CredentialForm, MessageType, export::ExportField}
 };
 
+use super::config::PendingAction;
 use super::App;
 
 type KeyHandler = fn(&mut App, KeyCode, KeyModifiers) -> Option<Action>;
@@ -129,6 +130,13 @@ impl App {
         let form = self.credential_form.as_ref().unwrap();
         if let Err(e) = form.validate() {
             self.set_message(&e, MessageType::Error);
+            return Ok(false);
+        }
+        // The secret field is masked, so a stray Ctrl+g or keystroke would
+        // otherwise overwrite the only copy of the old secret unseen.
+        if let Some(replacement) = form.secret_replacement() {
+            self.pending_action = Some(PendingAction::SaveReplacingSecret(replacement));
+            self.mode_state.enter_confirm_mode();
             return Ok(false);
         }
         self.save_credential_form()?;

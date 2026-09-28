@@ -192,7 +192,11 @@ impl App {
     }
 
     fn cancel_pending(&mut self) {
-        self.pending_action = None;
+        let pending = self.pending_action.take();
+        if pending.as_ref().is_some_and(PendingAction::returns_to_form) {
+            self.mode_state.enter_insert_mode();
+            return;
+        }
         self.mode_state.enter_normal_mode();
     }
 
@@ -204,6 +208,7 @@ impl App {
 
         match action {
             PendingAction::DeleteCredential(id) => self.delete_credential(&id)?,
+            PendingAction::SaveReplacingSecret(_) => self.save_credential_form()?,
         }
 
         self.mode_state.enter_normal_mode();
