@@ -159,7 +159,7 @@ fn render_tags_field(buf: &mut Buffer, x: u16, y: &mut u16, width: u16, tags: &[
     render_field(buf, x, y, width, "Tags", &tag_spans);
 }
 
-fn render_notes_section(buf: &mut Buffer, inner: &Rect, y: &mut u16, notes: &str) {
+fn render_notes_section(buf: &mut Buffer, inner: Rect, y: &mut u16, notes: &str) {
     let label_style = Style::default().fg(Color::Yellow);
     buf.set_string(inner.x, *y, "Notes:", label_style);
     *y += 1;
@@ -171,7 +171,7 @@ fn render_notes_section(buf: &mut Buffer, inner: &Rect, y: &mut u16, notes: &str
     note_widget.render(note_area, buf);
 }
 
-fn render_timestamps(buf: &mut Buffer, inner: &Rect, y: u16, created: &str, updated: &str) {
+fn render_timestamps(buf: &mut Buffer, inner: Rect, y: u16, created: &str, updated: &str) {
     let footer_y = inner.y + inner.height.saturating_sub(2);
     if footer_y <= y {
         return;
@@ -232,9 +232,9 @@ impl Widget for DetailView<'_> {
         y += 1;
 
         if let Some(ref notes) = self.detail.notes {
-            render_notes_section(buf, &inner, &mut y, notes);
+            render_notes_section(buf, inner, &mut y, notes);
         }
 
-        render_timestamps(buf, &inner, y, &self.detail.created_at, &self.detail.updated_at);
+        render_timestamps(buf, inner, y, &self.detail.created_at, &self.detail.updated_at);
     }
 }

@@ -54,7 +54,7 @@ impl ScrollState {
 }
 
 /// Renders a vertical scroll indicator (up/down arrow) centered horizontally
-pub fn render_v_scroll_indicator(buf: &mut Buffer, inner: &Rect, v_offset: usize, max_v: usize, color: Color) {
+pub fn render_v_scroll_indicator(buf: &mut Buffer, inner: Rect, v_offset: usize, max_v: usize, color: Color) {
     if max_v == 0 {
         return;
     }
@@ -71,7 +71,7 @@ pub fn render_v_scroll_indicator(buf: &mut Buffer, inner: &Rect, v_offset: usize
 /// Renders a horizontal scroll indicator in top-right corner
 pub fn render_h_scroll_indicator(
     buf: &mut Buffer,
-    inner: &Rect,
+    inner: Rect,
     h_offset: usize,
     max_h: usize,
     color: Color,

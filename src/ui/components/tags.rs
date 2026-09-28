@@ -130,7 +130,7 @@ impl Widget for TagsPopup<'_> {
         let header_height = 2u16;
         let list_area_height = inner.height.saturating_sub(header_height) as usize;
         let max_v = self.state.tags.len().saturating_sub(list_area_height);
-        let needs_v_scroll = max_v > 0;
+        let can_scroll_vertically = max_v > 0;
 
         // Render header (always at top)
         render_tags_header(inner, buf);
@@ -145,8 +145,8 @@ impl Widget for TagsPopup<'_> {
         render_tags_list(inner, buf, list_start_y, list_area_height, scroll_offset, self.state);
 
         // Render scroll indicator
-        if needs_v_scroll {
-            render_v_scroll_indicator(buf, &popup, scroll_offset, max_v, Color::Magenta);
+        if can_scroll_vertically {
+            render_v_scroll_indicator(buf, popup, scroll_offset, max_v, Color::Magenta);
         }
     }
 }

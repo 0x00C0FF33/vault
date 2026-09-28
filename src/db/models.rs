@@ -19,7 +19,7 @@ pub enum CredentialType {
 }
 
 impl CredentialType {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Password => "password",
             Self::ApiKey => "api_key",
@@ -65,7 +65,7 @@ impl CredentialType {
         Self::Custom,
     ];
 
-    pub fn icon(&self) -> &'static str {
+    pub fn icon(self) -> &'static str {
         match self {
             Self::Password => "󰌋",
             Self::ApiKey => "󰯄",
@@ -77,7 +77,7 @@ impl CredentialType {
         }
     }
 
-    pub fn display_name(&self) -> &'static str {
+    pub fn display_name(self) -> &'static str {
         match self {
             Self::Password => "Password",
             Self::ApiKey => "API Key",
@@ -91,6 +91,10 @@ impl CredentialType {
 }
 
 /// Credential model
+// `credential_type` is the SQLite column and the field name every other
+// credential struct uses; renaming it here alone would give one concept two
+// names.
+#[allow(clippy::struct_field_names)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Credential {
     pub id: String,
@@ -153,7 +157,7 @@ pub enum AuditAction {
 }
 
 impl AuditAction {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Create => "create",
             Self::Read => "read",

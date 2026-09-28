@@ -43,23 +43,12 @@ suite take minutes. Never use those values outside `#[cfg(test)]`.
 pedantic = { level = "deny", priority = -1 }
 ```
 
-Run it as plain `cargo clippy`. Passing `-W clippy::pedantic` on the
-command line re-levels the whole group and discards the manifest's
-exceptions, which produces warnings that the project has deliberately
-resolved.
+No pedantic lint is allowed project-wide, so `cargo clippy -- -W
+clippy::pedantic` reports the same thing as plain `cargo clippy`: nothing.
 
 ### Exceptions
 
-Four lints are allowed project-wide in `Cargo.toml`, each with a reason:
-
-| Lint | Why |
-| --- | --- |
-| `trivially_copy_pass_by_ref` | Would churn public signatures to pass 1-byte `Copy` enums by value |
-| `many_single_char_names` | Crypto code uses conventional short names |
-| `similar_names` | As above |
-| `struct_field_names` | As above |
-
-Everything else is scoped to the code it applies to, with a comment
+Every exception is scoped to the code it applies to, with a comment
 saying why:
 
 - `ui/mod.rs` — `cast_possible_truncation`. ratatui's geometry API is
@@ -75,11 +64,14 @@ saying why:
   conventional shape for a generator policy.
 - `db/connection.rs` — `needless_pass_by_value` on `make_dir_error`, kept
   by value so it stays point-free in `map_err`.
+- `db/models.rs` — `struct_field_names` on `Credential`. Its
+  `credential_type` field matches the SQLite column and the name every
+  other credential struct uses for the same thing.
 
 **Prefer a scoped exception to a global one.** A blanket allow in the
 manifest silences code that has not been looked at; an attribute next to
-the code documents a decision. Add to the manifest table only when the
-lint is wrong for the whole codebase.
+the code documents a decision. Add one to `[lints.clippy]` in `Cargo.toml`
+only when the lint is wrong for the whole codebase.
 
 Adding an exception means adding the comment explaining it. An
 undocumented `#[allow]` will be questioned in review.

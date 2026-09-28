@@ -8,29 +8,29 @@ use ratatui::{
 };
 
 /// Percentage based layout
-pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let content_area = Rect::new(r.x, r.y, r.width, r.height.saturating_sub(2));
-    let w = (u32::from(content_area.width) * u32::from(percent_x) / 100) as u16;
-    let h = (u32::from(content_area.height) * u32::from(percent_y) / 100) as u16;
-    let remainder_x = (content_area.width.saturating_sub(w)) % 2;
-    let remainder_y = (content_area.height.saturating_sub(h)) % 2;
-    let adj_w = w + remainder_x;
-    let adj_h = h + remainder_y;
+pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let content_area = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(2));
+    let width = (u32::from(content_area.width) * u32::from(percent_x) / 100) as u16;
+    let height = (u32::from(content_area.height) * u32::from(percent_y) / 100) as u16;
+    let remainder_x = (content_area.width.saturating_sub(width)) % 2;
+    let remainder_y = (content_area.height.saturating_sub(height)) % 2;
+    let adj_w = width + remainder_x;
+    let adj_h = height + remainder_y;
     let x = content_area.x + (content_area.width.saturating_sub(adj_w)) / 2;
     let y = content_area.y + (content_area.height.saturating_sub(adj_h)) / 2;
     Rect::new(x, y, adj_w.min(content_area.width), adj_h.min(content_area.height))
 }
 
 /// Fixed sized layout
-pub fn centered_rect_fixed(width: u16, height: u16, r: Rect, unlocked: bool) -> Rect {
-    let available_height = if unlocked { r.height.saturating_sub(2) } else { r.height };
-    let remainder_x = (r.width.saturating_sub(width)) % 2;
+pub fn centered_rect_fixed(width: u16, height: u16, area: Rect, unlocked: bool) -> Rect {
+    let available_height = if unlocked { area.height.saturating_sub(2) } else { area.height };
+    let remainder_x = (area.width.saturating_sub(width)) % 2;
     let remainder_y = (available_height.saturating_sub(height)) % 2;
     let adj_w = width + remainder_x;
     let adj_h = height + remainder_y;
-    let x = r.x + (r.width.saturating_sub(adj_w)) / 2;
-    let y = r.y + (available_height.saturating_sub(adj_h)) / 2;
-    Rect::new(x, y, adj_w.min(r.width), adj_h.min(available_height))
+    let x = area.x + (area.width.saturating_sub(adj_w)) / 2;
+    let y = area.y + (available_height.saturating_sub(adj_h)) / 2;
+    Rect::new(x, y, adj_w.min(area.width), adj_h.min(available_height))
 }
 
 pub fn create_popup_block(title: &str, color: Color) -> Block<'_> {

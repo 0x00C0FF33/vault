@@ -550,7 +550,7 @@ fn render_field(
     form: &CredentialForm,
     field: &FormField,
     field_idx: usize,
-    inner: &Rect,
+    inner: Rect,
     y: u16,
     label_width: u16,
 ) -> u16 {
@@ -703,12 +703,12 @@ impl Widget for CredentialFormWidget<'_> {
         for (i, field) in self.form.fields.iter().enumerate().skip(scroll_offset) {
             if i >= scroll_offset + visible_count { break; }
             if y >= y_limit { break; }
-            let rows_used = render_field(buf, self.form, field, i, &inner, y, label_width);
+            let rows_used = render_field(buf, self.form, field, i, inner, y, label_width);
             y += rows_used + 1;
         }
 
         if needs_scrolling {
-            render_v_scroll_indicator(buf, &form_area, scroll_offset, max_v, Color::Magenta);
+            render_v_scroll_indicator(buf, form_area, scroll_offset, max_v, Color::Magenta);
         }
     }
 }

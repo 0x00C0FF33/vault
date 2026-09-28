@@ -149,14 +149,14 @@ impl Widget for HelpScreen<'_> {
         }
 
         // Render scroll indicators
-        let needs_v_scroll = max_v > 0;
-        let needs_h_scroll = max_h > 0;
+        let can_scroll_vertically = max_v > 0;
+        let can_scroll_horizontally = max_h > 0;
 
-        if needs_v_scroll {
-            render_v_scroll_indicator(buf, &popup, self.state.scroll.v_scroll, max_v, Color::Magenta);
+        if can_scroll_vertically {
+            render_v_scroll_indicator(buf, popup, self.state.scroll.v_scroll, max_v, Color::Magenta);
         }
-        if needs_h_scroll {
-            render_h_scroll_indicator(buf, &popup, self.state.scroll.h_scroll, max_h, Color::Magenta);
+        if can_scroll_horizontally {
+            render_h_scroll_indicator(buf, popup, self.state.scroll.h_scroll, max_h, Color::Magenta);
         }
     }
 }

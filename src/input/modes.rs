@@ -19,7 +19,7 @@ pub enum InputMode {
 }
 
 impl InputMode {
-    pub fn indicator(&self) -> &'static str {
+    pub fn indicator(self) -> &'static str {
         match self {
             Self::Normal => "NORMAL",
             Self::Insert => "INSERT",
@@ -33,7 +33,7 @@ impl InputMode {
         }
     }
 
-    pub fn is_text_input(&self) -> bool {
+    pub fn is_text_input(self) -> bool {
         matches!(self, Self::Command | Self::Search)
     }
 }

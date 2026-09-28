@@ -64,14 +64,6 @@ tempfile = "3.12"
 [lints.clippy]
 pedantic = { level = "deny", priority = -1 }
 
-# Passing 1-byte Copy enums by value saves nothing meaningful and churns
-# public signatures.
-trivially_copy_pass_by_ref = "allow"
-# Crypto and entropy code leans on short conventional names (k, n, iv).
-many_single_char_names = "allow"
-similar_names = "allow"
-struct_field_names = "allow"
-
 [profile.release]
 opt-level = 3
 lto = true

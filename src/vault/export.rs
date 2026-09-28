@@ -38,7 +38,7 @@ pub enum ExportEncryption {
 }
 
 impl ExportEncryption {
-    pub fn file_extension(&self) -> &'static str {
+    pub fn file_extension(self) -> &'static str {
         match self {
             Self::None => "",
             Self::Gpg => ".gpg",
@@ -46,7 +46,7 @@ impl ExportEncryption {
         }
     }
 
-    pub fn display_name(&self) -> &'static str {
+    pub fn display_name(self) -> &'static str {
         match self {
             Self::None => "None (plaintext)",
             Self::Gpg => "GPG (AES-256)",

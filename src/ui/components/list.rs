@@ -304,13 +304,13 @@ impl Widget for EmptyState<'_> {
         let inner = render_optional_block(area, buf, self.block.as_ref());
 
         let center_y = inner.y + inner.height / 2;
-        let msg_x = center_x(&inner, self.message.len());
+        let msg_x = center_x(inner, self.message.len());
         buf.set_string(msg_x, center_y, self.message, Style::default().fg(Color::DarkGray));
-        render_optional_hint(buf, &inner, center_y, self.hint);
+        render_optional_hint(buf, inner, center_y, self.hint);
     }
 }
 
-fn center_x(area: &Rect, text_len: usize) -> u16 {
+fn center_x(area: Rect, text_len: usize) -> u16 {
     area.x + (area.width.saturating_sub(text_len as u16)) / 2
 }
 
@@ -321,7 +321,7 @@ fn render_optional_block(area: Rect, buf: &mut Buffer, block: Option<&Block>) ->
     inner
 }
 
-fn render_optional_hint(buf: &mut Buffer, area: &Rect, center_y: u16, hint: Option<&str>) {
+fn render_optional_hint(buf: &mut Buffer, area: Rect, center_y: u16, hint: Option<&str>) {
     let Some(hint) = hint else { return };
     let hint_x = center_x(area, hint.len());
     let style = Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC);

@@ -23,7 +23,7 @@ pub enum MessageType {
 }
 
 impl MessageType {
-    pub fn color(&self) -> Color {
+    pub fn color(self) -> Color {
         match self {
             Self::Info => Color::Blue,
             Self::Success => Color::Green,

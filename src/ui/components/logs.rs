@@ -184,8 +184,8 @@ impl Widget for LogsScreen<'_> {
         let max_v = self.state.logs.len().saturating_sub(entries_area_height);
         let max_h = (columns.total_width() as usize).saturating_sub(inner.width as usize);
 
-        let needs_v_scroll = max_v > 0;
-        let needs_h_scroll = max_h > 0;
+        let can_scroll_vertically = max_v > 0;
+        let can_scroll_horizontally = max_h > 0;
 
         // Render header (always at top)
         render_logs_header(inner, buf, self.state.scroll.h_scroll, &columns);
@@ -205,11 +205,11 @@ impl Widget for LogsScreen<'_> {
         );
 
         // Render scroll indicators
-        if needs_v_scroll {
-            render_v_scroll_indicator(buf, &popup, self.state.scroll.v_scroll, max_v, Color::Magenta);
+        if can_scroll_vertically {
+            render_v_scroll_indicator(buf, popup, self.state.scroll.v_scroll, max_v, Color::Magenta);
         }
-        if needs_h_scroll {
-            render_h_scroll_indicator(buf, &popup, self.state.scroll.h_scroll, max_h, Color::Magenta);
+        if can_scroll_horizontally {
+            render_h_scroll_indicator(buf, popup, self.state.scroll.h_scroll, max_h, Color::Magenta);
         }
     }
 }
@@ -256,7 +256,7 @@ fn render_log_row(
 ) {
     let (ts_x, act_x, name_x, user_x, det_x) = columns.positions();
     let timestamp = log.timestamp.format("%d-%b-%Y %H:%M").to_string();
-    let (action_str, action_color) = action_display(&log.action);
+    let (action_str, action_color) = action_display(log.action);
 
     let name = log.credential_name.as_deref().unwrap_or("-");
     let username = log.username.as_deref().unwrap_or("-");
@@ -284,7 +284,7 @@ fn render_log_row(
     );
 }
 
-fn action_display(action: &AuditAction) -> (&'static str, Color) {
+fn action_display(action: AuditAction) -> (&'static str, Color) {
     match action {
         AuditAction::Create => ("CREATE", Color::Green),
         AuditAction::Read => ("READ", Color::Blue),
