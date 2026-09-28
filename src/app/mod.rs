@@ -229,7 +229,7 @@ impl App {
         self.filter_tags = None;
         self.filter_type = None;
         if had_filters {
-            self.refresh_data()?;
+            self.reload_filtered()?;
             self.update_selected_detail()?;
         }
         Ok(())

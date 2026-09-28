@@ -39,6 +39,13 @@ impl App {
         Ok(())
     }
 
+    /// Reload after the search or a filter changed: the list holds a
+    /// different set of entries, so the old scroll position means nothing.
+    pub fn reload_filtered(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.list_state.scroll_to_top();
+        self.refresh_data()
+    }
+
     fn fetch_base_credentials(&self, db: &crate::db::Database) -> Result<Vec<Credential>, Box<dyn std::error::Error>> {
         let mut results = match &self.filter_tags {
             Some(tags) if !tags.is_empty() => crate::vault::search::filter_by_tags(db.conn(), tags)?,
@@ -61,13 +68,13 @@ impl App {
 
     pub fn search_credentials(&mut self, query: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.search_query = if query.is_empty() { None } else { Some(query.to_string()) };
-        self.refresh_data()?;
+        self.reload_filtered()?;
         self.update_selected_detail()
     }
 
     pub fn filter_by_tag(&mut self, tags: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         self.filter_tags = if tags.is_empty() { None } else { Some(tags.to_vec()) };
-        self.refresh_data()?;
+        self.reload_filtered()?;
 
         if !tags.is_empty() {
             self.set_message(&format_filter_message(tags), MessageType::Info);
@@ -77,7 +84,7 @@ impl App {
 
     pub fn filter_by_type(&mut self, cred_type: Option<CredentialType>) -> Result<(), Box<dyn std::error::Error>> {
         self.filter_type = cred_type;
-        self.refresh_data()?;
+        self.reload_filtered()?;
 
         let message = match cred_type {
             Some(t) => format!("Filtered by type: {}", t.display_name()),
@@ -163,11 +170,7 @@ impl App {
         self.view = return_to;
         self.mode_state.enter_normal_mode();
         
-        if let Some(query) = self.search_query.clone() {
-            self.search_credentials(&query)?;
-        } else {
-            self.refresh_data()?;
-        }
+        self.refresh_data()?;
         
         self.update_selected_detail()
     }
@@ -231,11 +234,7 @@ impl App {
             self.view = View::List;
         }
         
-        if let Some(query) = self.search_query.clone() {
-            self.search_credentials(&query)?;
-        } else {
-            self.refresh_data()?;
-        }
+        self.refresh_data()?;
         self.update_selected_detail()?;
         self.set_message("Credential deleted", MessageType::Success);
         Ok(())
@@ -625,3 +624,80 @@ mod search_filter_tests {
         assert!(matching_names("zzz").is_empty());
     }
 }
+
+#[cfg(test)]
+mod list_position_tests {
+    use ratatui::{backend::TestBackend, Terminal};
+    use tempfile::TempDir;
+
+    use crate::app::{App, AppConfig};
+    use crate::db::models::CredentialType;
+    use crate::input::keymap::Action;
+
+    const PASSWORD: &str = "test_password";
+
+    /// 16 rows leaves 12 visible list rows, so 30 credentials must scroll.
+    fn vault_with_credentials(dir: &TempDir, count: usize) -> (App, Terminal<TestBackend>) {
+        let mut app = App::new(AppConfig { vault_path: dir.path().join("vault.db"), ..AppConfig::default() });
+        app.initialize(PASSWORD).unwrap();
+        for i in 0..count {
+            let (db, dek) = (app.vault.db().unwrap(), app.vault.dek().unwrap());
+            crate::vault::credential::create_credential(
+                db.conn(), dek, format!("item{i:02}"), CredentialType::Password,
+                "secret", None, None, Vec::new(), None, None,
+            ).unwrap();
+        }
+        app.refresh_data().unwrap();
+        (app, Terminal::new(TestBackend::new(40, 16)).unwrap())
+    }
+
+    fn press(app: &mut App, terminal: &mut Terminal<TestBackend>, action: &Action, times: usize) {
+        for _ in 0..times {
+            app.execute_action(action.clone()).unwrap();
+            terminal.draw(|frame| app.render(frame)).unwrap();
+        }
+    }
+
+    /// Screen row the selected credential is drawn on.
+    fn cursor_row(app: &mut App, terminal: &mut Terminal<TestBackend>) -> u16 {
+        terminal.draw(|frame| app.render(frame)).unwrap();
+        let selected = app.list_state.selected().unwrap();
+        let name = app.credential_items[selected].name.clone();
+        let buffer = terminal.backend().buffer();
+        let row_text = |y| (0..buffer.area.width).map(|x| buffer[(x, y)].symbol()).collect::<String>();
+        (0..buffer.area.height).find(|&y| row_text(y).contains(&name)).unwrap()
+    }
+
+    fn delete_selected(app: &mut App) {
+        let id = app.credential_items[app.list_state.selected().unwrap()].id.clone();
+        app.delete_credential(&id).unwrap();
+    }
+
+    #[test]
+    fn deleting_keeps_the_cursor_on_the_same_screen_row() {
+        let dir = TempDir::new().unwrap();
+        let (mut app, mut terminal) = vault_with_credentials(&dir, 30);
+        press(&mut app, &mut terminal, &Action::MoveDown, 20);
+        press(&mut app, &mut terminal, &Action::MoveUp, 5);
+        let row_before = cursor_row(&mut app, &mut terminal);
+
+        delete_selected(&mut app);
+
+        assert_eq!(cursor_row(&mut app, &mut terminal), row_before);
+    }
+
+    #[test]
+    fn deleting_during_a_search_keeps_the_cursor_on_the_same_screen_row() {
+        let dir = TempDir::new().unwrap();
+        let (mut app, mut terminal) = vault_with_credentials(&dir, 30);
+        app.search_credentials("item").unwrap();
+        press(&mut app, &mut terminal, &Action::MoveDown, 20);
+        press(&mut app, &mut terminal, &Action::MoveUp, 5);
+        let row_before = cursor_row(&mut app, &mut terminal);
+
+        delete_selected(&mut app);
+
+        assert_eq!(cursor_row(&mut app, &mut terminal), row_before);
+    }
+}
+

@@ -50,13 +50,16 @@ impl ListViewState {
         self.selected
     }
 
+    /// Keeps the scroll position, so removing or adding one entry does not
+    /// move the rows around the cursor. Replacing the contents wholesale is
+    /// the caller's cue to `scroll_to_top` as well.
     pub fn set_total(&mut self, total: usize) {
-        let changed = self.total != total;
         self.total = total;
-        if changed {
-            *self.list_state.offset_mut() = 0;
-        }
         self.select(compute_selection_after_total_change(self.selected, total));
+    }
+
+    pub fn scroll_to_top(&mut self) {
+        *self.list_state.offset_mut() = 0;
     }
 
     pub fn move_up(&mut self) {
