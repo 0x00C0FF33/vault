@@ -45,6 +45,7 @@ handling should not require touching anything under `ui/`.
 | Module | Responsibility |
 | --- | --- |
 | `main.rs` | Terminal setup/teardown, `PR_SET_DUMPABLE`, unlock prompt, event loop |
+| `cli.rs` | Command-line arguments: vault path, `--help`, `--version` |
 | `app/` | `App` state, action execution, clipboard, auto-lock timing |
 | `app/input.rs` | Routes a key to a handler based on the current mode |
 | `input/keymap.rs` | Key + modifier to `Action`; the binding table |

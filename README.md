@@ -93,7 +93,11 @@ cargo run -- /tmp/test.db   # throwaway vault, not your real one
 ```bash
 vault                # default vault
 vault /path/to.db    # specific vault file
+vault --help         # usage and default path
+vault --version      # installed version
 ```
+
+Any other option is refused rather than taken as a file name.
 
 Your vault lives at `~/.local/share/vault/vault.db` on Linux; see [docs/storage.md](docs/storage.md#location) for other platforms.
 

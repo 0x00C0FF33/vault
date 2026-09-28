@@ -11,9 +11,10 @@ configuration file, no keyring entry and no state elsewhere on disk.
 | macOS | `~/Library/Application Support/vault/vault.db` |
 | Windows | `%APPDATA%\vault\vault.db` |
 
-Resolved by `dirs::data_dir()` (`vault/manager.rs`), falling back to the
-current directory if unavailable. A path given as the first CLI argument
-overrides the default.
+Resolved by `dirs::data_dir()` (`app/config.rs`), falling back to the
+current directory if unavailable. A path given as the only CLI argument
+(`vault /path/to.db`) overrides the default; `vault --help` prints the
+resolved default.
 
 The file is plain SQLite: readable by any SQLite client. Confidentiality
 comes from the encrypted columns, not from the container. See

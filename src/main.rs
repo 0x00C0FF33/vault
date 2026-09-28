@@ -3,7 +3,6 @@
 //! A local-first, vim-style TUI credential manager.
 
 use std::io;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind};
@@ -15,6 +14,7 @@ use ratatui::Terminal;
 use crate::input::{handle_text_key, SecureTextBuffer, TextEditing};
 
 mod app;
+mod cli;
 mod crypto;
 mod db;
 mod input;
@@ -45,12 +45,25 @@ fn harden_process() {
     unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0); }
 }
 
+/// Resolve the config from the command line, or exit for `--help`,
+/// `--version` and bad arguments. Runs before the terminal is touched, so
+/// plain printing is safe.
 fn parse_config() -> AppConfig {
-    let mut config = AppConfig::default();
-    if let Some(path) = std::env::args().nth(1) {
-        config.vault_path = PathBuf::from(path);
+    match cli::parse(std::env::args().skip(1)) {
+        Ok(cli::Command::Run(config)) => config,
+        Ok(cli::Command::Help) => {
+            print!("{}", cli::usage());
+            std::process::exit(0);
+        }
+        Ok(cli::Command::Version) => {
+            println!("{}", cli::version());
+            std::process::exit(0);
+        }
+        Err(msg) => {
+            eprintln!("vault: {msg}\nRun 'vault --help' for usage.");
+            std::process::exit(2);
+        }
     }
-    config
 }
 
 fn ensure_vault_dir(config: &AppConfig) -> Result<(), Box<dyn std::error::Error>> {
