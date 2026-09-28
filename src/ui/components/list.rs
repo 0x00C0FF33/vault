@@ -21,16 +21,32 @@ pub struct CredentialItem {
     pub credential_type: CredentialType,
 }
 
+/// Rows kept visible above and below the cursor, as vim's `scrolloff`.
+pub const DEFAULT_SCROLLOFF: usize = 5;
+/// vim's conventional "always centre" value. Anything larger behaves the same
+/// and only costs ratatui more work shrinking the padding to fit.
+pub const MAX_SCROLLOFF: usize = 999;
+
 #[derive(Debug, Clone)]
-#[derive(Default)]
 pub struct ListViewState {
     pub selected: Option<usize>,
     pub total: usize,
-    /// Stored inverted so the derived default shows usernames.
-    usernames_hidden: bool,
+    usernames_visible: bool,
+    scrolloff: usize,
     list_state: ListState,
 }
 
+impl Default for ListViewState {
+    fn default() -> Self {
+        Self {
+            selected: None,
+            total: 0,
+            usernames_visible: true,
+            scrolloff: DEFAULT_SCROLLOFF,
+            list_state: ListState::default(),
+        }
+    }
+}
 
 impl ListViewState {
     pub fn new() -> Self {
@@ -107,11 +123,19 @@ impl ListViewState {
     }
 
     pub fn usernames_visible(&self) -> bool {
-        !self.usernames_hidden
+        self.usernames_visible
     }
 
     pub fn set_usernames_visible(&mut self, visible: bool) {
-        self.usernames_hidden = !visible;
+        self.usernames_visible = visible;
+    }
+
+    pub fn scrolloff(&self) -> usize {
+        self.scrolloff
+    }
+
+    pub fn set_scrolloff(&mut self, lines: usize) {
+        self.scrolloff = lines.min(MAX_SCROLLOFF);
     }
 
     pub fn list_state_mut(&mut self) -> &mut ListState {
@@ -135,6 +159,7 @@ pub struct CredentialList<'a> {
     block: Option<Block<'a>>,
     highlight_style: Style,
     show_username: bool,
+    scrolloff: usize,
 }
 
 impl<'a> CredentialList<'a> {
@@ -144,6 +169,7 @@ impl<'a> CredentialList<'a> {
             block: None,
             highlight_style: Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD),
             show_username: true,
+            scrolloff: 0,
         }
     }
 
@@ -154,6 +180,11 @@ impl<'a> CredentialList<'a> {
 
     pub fn show_username(mut self, show: bool) -> Self {
         self.show_username = show;
+        self
+    }
+
+    pub fn scrolloff(mut self, lines: usize) -> Self {
+        self.scrolloff = lines;
         self
     }
 }
@@ -236,7 +267,7 @@ impl StatefulWidget for CredentialList<'_> {
             .map(|(i, item)| build_list_item(item, i, selected, self.highlight_style, self.show_username))
             .collect();
 
-        let list = List::new(items);
+        let list = List::new(items).scroll_padding(self.scrolloff);
         let list = match self.block {
             Some(block) => list.block(block),
             None => list,

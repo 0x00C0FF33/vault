@@ -322,6 +322,7 @@ fn help_sections() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
             (":log", "View logs"),
             (":tag", "View tags"),
             (":type <name>", "Filter by type (bare :type clears)"),
+            (":set so=<n>", "Keep n rows around cursor (default 5)"),
             (":new", "New credential"),
             (":gen", "Generate password"),
             (":export", "Export Credentials"),

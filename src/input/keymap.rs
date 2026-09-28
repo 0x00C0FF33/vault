@@ -42,6 +42,7 @@ pub enum Action {
     // View
     TogglePasswordVisibility,
     ToggleUsernameVisibility,
+    SetScrolloff(usize),
     
     // Mode changes
     EnterCommand,
@@ -204,6 +205,7 @@ pub fn parse_command(cmd: &str) -> Action {
 
     match command {
         "ty" | "type" => parse_type_filter(argument),
+        "set" => parse_set_option(argument),
         "cls" | "clear" => Action::Clear,
         "q" | "quit" => Action::Quit,
         "q!" | "quit!" => Action::ForceQuit,
@@ -236,6 +238,19 @@ fn parse_type_filter(argument: Option<&str>) -> Action {
     match CredentialType::parse_name(name) {
         Some(cred_type) => Action::FilterByType(Some(cred_type)),
         None => Action::Invalid(format!("type {name}")),
+    }
+}
+
+/// `:set scrolloff=N`, or vim's short form `:set so=N`. Anything else is
+/// reported rather than ignored, so a typo does not look like it took effect.
+fn parse_set_option(argument: Option<&str>) -> Action {
+    let assignment = argument.unwrap_or_default();
+    let Some((name, value)) = assignment.split_once('=') else {
+        return Action::Invalid(format!("set {assignment}"));
+    };
+    match (name.trim(), value.trim().parse::<usize>()) {
+        ("scrolloff" | "so", Ok(lines)) => Action::SetScrolloff(lines),
+        _ => Action::Invalid(format!("set {assignment}")),
     }
 }
 
@@ -364,6 +379,20 @@ mod tests {
     fn test_normal_mode_j() {
         let (action, _) = normal_mode_action(key(KeyCode::Char('j')), None);
         assert_eq!(action, Action::MoveDown);
+    }
+
+    #[test]
+    fn set_scrolloff_accepts_the_long_and_short_names() {
+        assert_eq!(parse_command("set scrolloff=3"), Action::SetScrolloff(3));
+        assert_eq!(parse_command("set so=0"), Action::SetScrolloff(0));
+        assert_eq!(parse_command("set so = 8"), Action::SetScrolloff(8));
+    }
+
+    #[test]
+    fn malformed_set_commands_are_reported() {
+        for cmd in ["set", "set so", "set so=", "set so=abc", "set so=-1", "set wrap=1"] {
+            assert!(matches!(parse_command(cmd), Action::Invalid(_)), "{cmd}");
+        }
     }
 
     #[test]

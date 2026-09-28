@@ -40,6 +40,7 @@ Key/value store for everything that is not a credential.
 | `pending_failed_unlocks` | Failed unlock count since last successful unlock. |
 | `last_failed_unlock_at` | Timestamp of the most recent failed unlock. |
 | `show_usernames` | `false` once usernames are hidden in the list (`U`); absent or `true` shows them. |
+| `scrolloff` | Rows kept around the cursor, set by `:set so=<n>`; absent means 5. |
 
 A freshly created vault:
 

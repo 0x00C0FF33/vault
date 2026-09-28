@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use crate::db::AuditAction;
 use crate::input::keymap::{parse_command, Action};
+use crate::ui::components::list::MAX_SCROLLOFF;
 use crate::ui::{components::MessageType, renderer::View};
 
 use super::config::PendingAction;
@@ -33,6 +34,7 @@ impl App {
             Action::CopyTotpUri => self.copy_totp_uri()?,
             Action::TogglePasswordVisibility => self.toggle_password()?,
             Action::ToggleUsernameVisibility => self.toggle_username(),
+            Action::SetScrolloff(lines) => self.set_scrolloff(lines),
 
             Action::Delete => self.initiate_delete(),
             Action::New => self.new_credential(),
@@ -159,12 +161,26 @@ impl App {
         let visible = !self.list_state.usernames_visible();
         self.list_state.set_usernames_visible(visible);
 
-        if let Err(e) = self.save_view_preferences() {
+        if let Err(e) = self.save_usernames_visible() {
             self.set_message(&format!("Usernames toggled, but not saved: {e}"), MessageType::Error);
             return;
         }
         let msg = if visible { "Usernames shown" } else { "Usernames hidden" };
         self.set_message(msg, MessageType::Info);
+    }
+
+    fn set_scrolloff(&mut self, lines: usize) {
+        if lines > MAX_SCROLLOFF {
+            self.set_message(&format!("scrolloff must be at most {MAX_SCROLLOFF}"), MessageType::Error);
+            return;
+        }
+        self.list_state.set_scrolloff(lines);
+
+        if let Err(e) = self.save_scrolloff() {
+            self.set_message(&format!("scrolloff={lines}, but not saved: {e}"), MessageType::Error);
+            return;
+        }
+        self.set_message(&format!("scrolloff={lines}"), MessageType::Info);
     }
 
     fn initiate_delete(&mut self) {

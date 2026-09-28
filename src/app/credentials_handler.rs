@@ -686,6 +686,33 @@ mod list_position_tests {
         assert_eq!(cursor_row(&mut app, &mut terminal), row_before);
     }
 
+    /// List rows are screen rows 1..=12, inside the border.
+    #[test]
+    fn scrolling_down_keeps_scrolloff_rows_below_the_cursor() {
+        let dir = TempDir::new().unwrap();
+        let (mut app, mut terminal) = vault_with_credentials(&dir, 30);
+        press(&mut app, &mut terminal, &Action::MoveDown, 20);
+        assert_eq!(cursor_row(&mut app, &mut terminal), 7);
+    }
+
+    #[test]
+    fn scrolling_up_keeps_scrolloff_rows_above_the_cursor() {
+        let dir = TempDir::new().unwrap();
+        let (mut app, mut terminal) = vault_with_credentials(&dir, 30);
+        press(&mut app, &mut terminal, &Action::MoveToBottom, 1);
+        press(&mut app, &mut terminal, &Action::MoveUp, 20);
+        assert_eq!(cursor_row(&mut app, &mut terminal), 6);
+    }
+
+    #[test]
+    fn scrolloff_zero_lets_the_cursor_reach_the_edge() {
+        let dir = TempDir::new().unwrap();
+        let (mut app, mut terminal) = vault_with_credentials(&dir, 30);
+        press(&mut app, &mut terminal, &Action::SetScrolloff(0), 1);
+        press(&mut app, &mut terminal, &Action::MoveDown, 20);
+        assert_eq!(cursor_row(&mut app, &mut terminal), 12);
+    }
+
     #[test]
     fn deleting_during_a_search_keeps_the_cursor_on_the_same_screen_row() {
         let dir = TempDir::new().unwrap();
