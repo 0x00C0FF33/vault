@@ -29,7 +29,7 @@ Key/value store for everything that is not a credential.
 
 | Key | Contents |
 | --- | --- |
-| `schema_version` | Table structure version. Currently `3`. |
+| `schema_version` | Table structure version. Currently `4`. |
 | `kdf_version` | Key-derivation format version. Currently `2`. |
 | `kdf_salt` | 16-byte Argon2 salt, hex. |
 | `kdf_params` | Argon2 cost parameters, JSON. |
@@ -51,7 +51,7 @@ kdf_verifier    = 2ae834798e481ecda50e87ac390d08593db8718483084b2bdd420816d26e26
 kdf_version     = 2
 audit_head      = 9f1c…
 audit_version   = 2
-schema_version  = 3
+schema_version  = 4
 wrapped_dek     = 6ca72a6c5c4f260c8b01c24b67e13756…
 ```
 
